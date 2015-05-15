@@ -6,58 +6,69 @@
 
 (deftest raw-test
   (is (= [1 4 9]
-         (iter (for-each x [1 2 3])
+         (iter (foreach x [1 2 3])
                (collect (* x x)))))
 
+  (is (nil? (iter "foo")))
+
+  (is (= [[1 0] [1 2] [1 7] [2 0] [2 2] [2 7] [3 0] [3 2] [3 7]]
+         (iter (foreach x [1 2 3])
+               (foreach y [0 2 7])
+               (collect [x y]))))
+
   (is (= [0 4 21]
-         (iter (for-each x [1 2 3])
-               (for-each y [0 2 7])
+         (iter (foreach [x y] (map vector [1 2 3] [0 2 7]))
+               (collect (* x y)))))
+
+  (is (= [0 4 21]
+         (iter (foreach [x y] [1 2 3] [0 2 7])
                (collect (* x y)))))
 
   (is (= '(0 1 1 2 4 3 9 4 16 5)
-         (iter (for-each x (range 5))
+         (iter (foreach x (range 5))
                (collect (* x x))
                (collect (inc x)))))
 
   (is (= '(0 1 2 3 6 5 12 7 20 9)
-         (iter (for-each x (range 5))
-               (for-each y (range 1 10))
+         (iter (foreach [x y] (range 5) (range 1 10))
                (collect (* x y))
                (collect (+ x y)))))
 
   (is (= '(0 -1 2 -3 4)
-         (iter (for-each x (range 5))
-               (collect (if (even? x) x (- x))))))
+         (iter (foreach x (range 5))
+               (collect (if (even? x)
+                            x
+                            (- x))))))
   )
 
 (deftest if-test
   (is (= [0 2 4 4 16 6 36 8 64 10]
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (if (even? x)
                    (collect (* x x))
                    (collect (inc x))))))
 
   (is (= [0 4 16 36 64]
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (if (even? x)
                    (collect (* x x))))))
 
   (is (= [[:z 0] [:z 1] [:z 2] [:z 3] [:z 4]
           [:m 5] [:z 5] [:m 6] [:z 6] [:m 7] [:z 7] [:m 8] [:z 8] [:m 9] [:z 9]]
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (if (> x 4)
                    (collect [:m x]))
                (collect [:z x]))))
 
   (is (= [[:a 0] [:a 1] [:a 2] [:a 3] [:a 4]
           [:a 5] [:m 5] [:a 6] [:m 6] [:a 7] [:m 7] [:a 8] [:m 8] [:a 9] [:m 9]]
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (collect [:a x])
                (if (> x 4)
                    (collect [:m x])))))
 
   (is (= '(0 0 1 2 4 3 4 16 5 6 36 7 8 64 9)
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (collect x)
                (if (even? x)
                    (collect (* x x))))))
@@ -72,7 +83,7 @@
           [:a 7] [:g 7] [:m 7] [:o 7] [:z 7]
           [:a 8] [:g 8] [:m 8] [:e 8] [:z 8]
           [:a 9] [:g 9] [:m 9] [:o 9] [:z 9]]
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (collect [:a x])
                (if (> x 4)
                    (collect [:g x]))
@@ -85,7 +96,7 @@
 (deftest expr-test
   (let [state (atom [])]
     (is (= [0 1 4 9 16 25 36 49 64 81]
-           (iter (for-each x (range 10))
+           (iter (foreach x (range 10))
                  (swap! state conj (* 2 x))
                  (collect (* x x)))))
     (is (= [0 2 4 6 8 10 12 14 16 18]
@@ -93,7 +104,7 @@
 
   (let [state (atom [])]
     (is (= [0 4 16 36 64]
-           (iter (for-each x (range 10))
+           (iter (foreach x (range 10))
                  (if (odd? x)
                      (swap! state conj (* 2 x)))
                  (if (even? x)
@@ -103,62 +114,86 @@
 
 (deftest prev-test
   (is (= [[0 nil] [1 0] [2 1] [3 2] [4 3] [5 4] [6 5] [7 6] [8 7] [9 8]]
-         (iter (for-each x (range 10))
-               (for-prev y x)
+         (iter (foreach x (range 10))
+               (with-prev y x)
                (collect [x y]))))
   (is (= [[0 8] [1 0] [2 1] [3 2] [4 3] [5 4] [6 5] [7 6] [8 7] [9 8]]
-         (iter (for-each x (range 10))
-               (for-prev y x 8)
+         (iter (foreach x (range 10))
+               (with-prev y x 8)
                (collect [x y]))))
   (is (= [[0 8 77] [1 0 8] [2 1 0] [3 2 1] [4 3 2]
           [5 4 3] [6 5 4] [7 6 5] [8 7 6] [9 8 7]]
-         (iter (for-each x (range 10))
-               (for-prev y x 8)
-               (for-prev z y 77)
+         (iter (foreach x (range 10))
+               (with-prev y x 8)
+               (with-prev z y 77)
                (collect [x y z])))))
 
-(deftest for-each-first-test
+(deftest foreach-first-test
   (is (= [100 1 2 3 4 5 6 7 8 9]
-         (iter (for-each x (range 10))
-               (for-next first? false true)
+         (iter (foreach x (range 10))
+               (with-prev first? false true)
                (if first?
                    (collect 100)
                    (collect x)))))
   (is (= [:a 0 1 2 3 4]
-         (iter (for-each x (range 5))
-               (for-next first-time? false true)
+         (iter (foreach x (range 5))
+               (with-prev first-time? false true)
                (if first-time?
+                   (collect :a))
+               (collect x))))
+  (is (= [:a 0 1 2 3 4]
+         (iter (foreach x (range 5))
+               (with-first first?)
+               (if first?
                    (collect :a))
                (collect x)))))
 
 (deftest set-form-test
   (is (= [[0 0] [1 1] [2 4] [3 9] [4 16]]
-         (iter (for-each x (range 5))
+         (iter (foreach x (range 5))
                (with y (* x x))
                (collect [x y])))))
 
 (deftest stop-test
   (is (= [0]
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (if (even? x)
                    (collect (* x x))
                    (stop)))))
 
   (is (= [0]
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (collect (* x x))
                (stop))))
 
   (is (= [[:z 0] [:z 1] [:z 2] [:z 3] [:z 4]]
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (if (> x 4)
                    (stop))
-               (collect [:z x])))))
+               (collect [:z x]))))
+  (is (= [[0 0] [0 1] [1 0] [1 1] [2 0] [2 1]]
+         (iter (foreach x (range 10))
+               (foreach y (range 2))
+               (if (> x 2)
+                   (stop))
+               (collect [x y]))))
+  (is (= [[0 0] [0 1] [1 0] [1 1] [2 0] [2 1]]
+         (iter (foreach x (range 10))
+               (if (> x 2)
+                   (stop))
+               (foreach y (range 2))
+               (collect [x y]))))
+  (is (= [[:a 0] [:a 1] [:a 2]]
+         (iter (foreach x (range 10))
+               (if (> x 2)
+                   (stop))
+               (collect [:a x])
+               (foreach y (range 2))))))
 
 (deftest begin-test
   (let [state (atom [])]
     (is (= [0 1 2 3 4]
-           (iter (for-each x (range 10))
+           (iter (foreach x (range 10))
                  (begin (swap! state conj :a))
                  (if (> x 4)
                      (do
@@ -169,14 +204,14 @@
 
 (deftest end-test
   (is (= [[:z 0] [:z 1] [:z 2] [:z 3] [:z 4] :done]
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (end (collect :done))
                (if (> x 4)
                    (stop))
                (collect [:z x]))))
   (let [state (atom [])]
     (is (= [0 1 2 3 4 :done]
-           (iter (for-each x (range 10))
+           (iter (foreach x (range 10))
                  (end (collect :done))
                  (end (swap! state conj :a))
                  (if (> x 4)
@@ -187,7 +222,7 @@
     (is (= [:a :b] @state)))
   (let [state (atom [])]
     (is (= [0 1 2 3 4 :done]
-           (iter (for-each x (range 10))
+           (iter (foreach x (range 10))
                  (end (collect :done))
                  (end (swap! state conj :a))
                  (if (> x 4)
@@ -201,59 +236,64 @@
   ([key coll]
    (find-next key coll nil))
   ([key coll not-found]
-   (iter (for-next xs (rest xs) coll)
-         (:if (empty? xs)
-              (stop not-found))
-         (:if (and (= (first xs) key) (seq (rest xs)))
-              (return (second xs))))))
+   (iter (fornext xs (rest xs) coll)
+         (if (empty? xs)
+             (return not-found))
+         (if (and (= (first xs) key) (seq (rest xs)))
+             (return (second xs))))))
 
 (deftest return-test
   (is (= 64
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (if (and (zero? (mod x 4)) (> x 5))
                    (return (* x x))))))
   (is (= 2
-         (find-next :b [:a 1 :b 2 :c 3] ))))
+         (find-next :b [:a 1 :b 2 :c 3] )))
+  (is (= [6 4]
+         (iter (foreach x (range 10))
+               (foreach y (range 10))
+               (if (and (zero? (mod y 4)) (> y 2) (> x 5))
+                   (return [x y]))))))
 
 (deftest finding-test
   (is (= 64
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (finding (* x x) (and (zero? (mod x 4)) (> x 5))))))
 
   (is (= 125
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (with y (if (> x 4)
                            (* x x x)))
                (finding y)))))
 
 (deftest reducing-test
   (is (= 45
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (reducing x :by +))))
   (is (= 20
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (if (even? x)
                    (reducing x :by +)))))
   (is (= 120
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (if (even? x)
                    (reducing x :by + :init 100)))))
   (is (= 120
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (if (even? x)
                    (reducing x :init 100 :by +)))))
   (is (= 100
-         (iter (for-each x [])
+         (iter (foreach x [])
                (if (even? x)
                    (reducing x :init 100 :by +))))))
 
 (deftest finally-by-test
   (is (= 45
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (collect x)
                (finally-by (fn [xs] (reduce + xs))))))
   (is (= 20
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (if (even? x)
                    (collect x))
                (finally-by (fn [xs] (reduce + xs)))))))
@@ -261,7 +301,7 @@
 (deftest do-form-test
   (let [state (atom [])]
     (is (= '(0 0 1 8 2 3 64 4 5 216 6 7 512 8 9)
-           (iter (for-each x (range 10))
+           (iter (foreach x (range 10))
                  (if (even? x)
                      (do
                        (swap! state conj x)
@@ -272,7 +312,7 @@
            @state)))
   (let [state (atom [])]
     (is (empty?
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (if (even? x)
                    (do
                      (swap! state conj x))))))
@@ -281,27 +321,27 @@
 
 (deftest with-var-test
   (is (= '(0 1 4 9 16 25 36 49 64 81)
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (with y (* x x))
                (collect y))))
-    (is (= '(110 111 112 113 114 115 116 117 118 119)
-         (iter (for-each x (range 10))
+  (is (= '(110 111 112 113 114 115 116 117 118 119)
+         (iter (foreach x (range 10))
                (with y (+ 10 x))
                (with z (+ 100 y))
                (collect z)))))
 
 (deftest accum-var-test
   (is (= '(0 1 3 6 10 15 21 28 36 45)
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (accum sum (+ sum x) 0)
                (collect sum))))
   (is (= '(3 1 4 5 9 2 6 8 7)
-         (iter (for-each x [3 1 4 1 5 9 2 6 5 3 5 8 9 7 9 3])
+         (iter (foreach x [3 1 4 1 5 9 2 6 5 3 5 8 9 7 9 3])
                (if (not (seen? x))
                    (collect x))
                (accum seen? (conj seen? x) #{}))))
   (is (= '(3 1 4 5 9 2 6 8 7)
-         (iter (for-each x [3 1 4 1 5 9 2 6 5 3 5 8 9 7 9 3])
+         (iter (foreach x [3 1 4 1 5 9 2 6 5 3 5 8 9 7 9 3])
                (if (not (seen? x))
                    (do
                      (collect x)
@@ -312,55 +352,55 @@
 
 (deftest define-iter-test
   (is (= 9
-         (iter (for-each x [3 1 4 1 5 9 2 6 5 3 5 8 9 7 9 3])
+         (iter (foreach x [3 1 4 1 5 9 2 6 5 3 5 8 9 7 9 3])
                (my-maximizing x)))))
 
 (deftest collect-map-test
   (is (= {"zero" 0, "one" 1, "two" 4, "three" 9, "four" 16}
-         (iter (for-each x (range 5))
+         (iter (foreach x (range 5))
                (collect-map (cl-format nil "~r" x)
                             (* x x))))))
 
 (deftest iter-when-test
   (is (= ["one" 1 "three" 3 "five" 5 "seven" 7 "nine" 9]
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (when (odd? x)
                  (collect (cl-format nil "~r" x))
                  (collect x)))))
   (is (= 165
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (when (odd? x)
                  (reducing (* x x) :by +))))))
 
 (deftest agg-test
   (is (= 9
-         (iter (for-each x [3 1 4 1 5 9 2 6 5 3 5 8 9 7 9 3])
+         (iter (foreach x [3 1 4 1 5 9 2 6 5 3 5 8 9 7 9 3])
                (maximize x))))
   (is (= 1
-         (iter (for-each x [3 1 4 1 5 9 2 6 5 3 5 8 9 7 9 3])
+         (iter (foreach x [3 1 4 1 5 9 2 6 5 3 5 8 9 7 9 3])
                (minimize x))))
   (is (= 45
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (sum x))))
   (is (= 25
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (when (odd? x)
                  (sum x)))))
   (is (= 190
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (when (odd? x)
                  (sum (* x x))
                  (sum x)))))
   (is (= 15
-         (iter (for-each x (range 6))
+         (iter (foreach x (range 6))
                (when (odd? x)
                  (multiply x)))))
   (is (= 5
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (when (odd? x)
                  (counting x)))))
   (is (= 9
-         (iter (for-each x (range 10))
+         (iter (foreach x (range 10))
                (when (and (> x 0) (even? x))
                  (counting (* x x)))
                (when (odd? x)
@@ -368,19 +408,32 @@
 
 (deftest collect-cat-test
   (is (= [1 4 8 16 2 3 16 64 256 4 5]
-         (iter (for-each x [1 2 3 4 5])
+         (iter (foreach x [1 2 3 4 5])
                (when (even? x)
                  (collect-cat [(* x x) (* x x x) (* x x x x)]))
                (collect x))))
-    (is (= [nil 1 4 8 16 nil 2 nil 3 16 64 256 nil 4 nil 5]
-         (iter (for-each x [1 2 3 4 5])
+  (is (= [nil 1 4 8 16 nil 2 nil 3 16 64 256 nil 4 nil 5]
+         (iter (foreach x [1 2 3 4 5])
                (when (even? x)
                  (collect-cat [(* x x) (* x x x) (* x x x x)]))
                (collect nil)
                (collect x)))))
 
 (deftest nested-test
+  (is (= [[0 0] [1 0] [1 1] [2 0] [2 1] [2 2]]
+         (iter (foreach x (range 3))
+               (foreach y (range (inc x)))
+               (collect [x y]))))
+  (is (= [[:a 88] [:a 99] [:b 88] [:b 99] [:c 88] [:c 99]]
+         (iter (foreach x [:a :b :c])
+               (foreach y [88 99])
+               (collect [x y]))))
+  (is (= [:a 88 99 :b 88 99 :c 88 99]
+         (iter (foreach x [:a :b :c])
+               (collect x)
+               (foreach y [88 99])
+               (collect y))))
   (is (= ["comedy" "romance" "comedy" "romance" "action" "comedy"]
-         (iter (for-each t ["comedy" "romance" "comedy romance" "action comedy"])
-               (iter (for-each s (clojure.string/split t #" "))
-                     (collect (clojure.string/lower-case s)))))))
+         (iter (foreach t ["comedy" "romance" "comedy romance" "action comedy"])
+               (foreach s (clojure.string/split t #" "))
+               (collect (clojure.string/lower-case s))))))

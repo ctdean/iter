@@ -58,9 +58,11 @@
   (match (vec form)
     [:collect expr]                     {:collect expr}
     [:collect-cat expr]                 {:collect-cat expr}
+    [:next var incr init done?]         {:next {:var var :incr incr :init init
+                                                 :done? done?}}
     [:with var expr]                    {:with {:binding var :init [{:expr expr}]}}
     [:accum var expr init]              {:with {:binding var :init [{:expr expr}]}
-                                         :prologue {:init-vars var :init-vals init}}
+                                         :prologue {:accum-var var :accum-init init}}
     [:if test then]                     {:if {:test test :then (build-parse-tree [then])
                                               :else nil}}
     [:if test then else]                {:if {:test test :then (build-parse-tree [then])
@@ -68,7 +70,6 @@
     [:begin expr]                       {:begin (build-parse-tree [expr])}
     [:end expr]                         {:end (build-parse-tree [expr])}
     [:stop]                             {:stop sentinel}
-    [:stop expr]                        {:stop expr}
     [:return expr]                      {:return expr}
     [:do & forms]                       {:do (build-parse-tree forms)}
     [:finally-by f]                     {:finally-by f}
@@ -122,18 +123,11 @@
 (define-iter-clause if [& args]         `(:if ~@args))
 (define-iter-clause begin [& args]      `(:begin ~@args))
 (define-iter-clause return [& args]     `(:return ~@args))
-(define-iter-clause stop [& args]       `(:stop ~@args))
+(define-iter-clause stop []             `(:stop))
 (define-iter-clause end [& args]        `(:end ~@args))
 (define-iter-clause accum [& args]      `(:accum ~@args))
 (define-iter-clause with [& args]       `(:with ~@args))
 (define-iter-clause finally-by [& args] `(:finally-by ~@args))
-
-(reg-macro 'iter 'nested-iter)
-(defmacro nested-iter [& body]
-  (let [nested (gensym "nested-")]
-    `(do
-       (with ~nested (iter ~@body))     ; With takes a simple expr so iter
-       (collect-cat ~nested))))         ; won't be recursively expanded
 
 ;; We need to define this here so we can use use WHEN in our normal
 ;; clojure code below.
@@ -145,127 +139,157 @@
 ;;; Compile the AST into operators for the output state machine.
 ;;;
 
-(defn- build-prologue
-  "Build the prologue which contains all the bindings as we call each
-  step in the walker.  We might see duplicate `with` bindings as we
-  walk down multiple branches of an `if` expression, so delete those
-  here for efficiency."
-  [prologue]
-  (let [merged (->> prologue
-                    (map #(map-vals list %))
-                    (apply merge-with concat))
-        inits     (->> (map #(hash-map :init-var %1 :init-val %2)
-                            (:init-vars merged) (:init-vals merged))
-                       (distinct-by :init-var))]
-    {:init-vars (map :init-var inits)
-     :init-vals (map :init-val inits)}))
+(def ^:private step-sym (memoize
+                         (fn [depth]
+                           (when (>= depth 0)
+                             (gensym (str "step-" depth "-"))))))
 
-(defn- compile-if [op after vars]
+(def ^:private gather-sym-var (gensym (str "gather-")))
+(defn- gather-sym [depth]
+  (if (< depth 0)
+      []
+      gather-sym-var))
+
+(defn- compile-if [op after gather]
   (let [x (:if op)]
     [{:if {:test (:test x)
-           :then (compile-ops (concat (:then x) after) vars)
-           :else (compile-ops (concat (:else x) after) vars)}}]))
+           :then (compile-ops (concat (:then x) after) gather)
+           :else (compile-ops (concat (:else x) after) gather)}}]))
 
-(defn- compile-do [op after vars]
-  (compile-ops (concat (:do op) after) vars))
+(defn- compile-do [op after gather]
+  (compile-ops (concat (:do op) after) gather))
 
-(defn- compile-with [op after vars]
+(defn- compile-with [op after gather]
   (let [x (:with op)]
     [{:with {:binding (:binding x)
              :expr (compile-ops (:init x) [])
-             :ops (compile-ops after vars)}}]))
+             :ops (compile-ops after gather)}}]))
 
-(defn- compile-collect [op after vars]
+(defn- compile-collect [op after gather]
   (let [expr (:collect op)
-        v (gensym "collect-")]
+        v (gensym "collect-")
+        g (gather-sym (dec (:next-depth @*op-state* 0)))]
     (swap! *op-state* update-in [:collect] (fnil inc 0))
-    (swap! *op-state* update-in [:walk] (fnil inc 0))
-    (compile-with {:with {:binding v :init (compile-ops [{:expr expr}] [])}}
-                  after
-                  (conj vars {:add 'cons :var v}))))
+    (compile-ops
+     (concat [{:with {:binding v :init (compile-ops [{:expr expr}] [])}}]
+             [{:with {:binding g :init (compile-ops [{:expr `(conj ~g ~v)}] [])}}]
+             after)
+     (conj gather g))))
 
-(defn- compile-collect-cat [op after vars]
+(defn- compile-collect-cat [op after gather]
   (let [expr (:collect-cat op)
-        v (gensym "cat-")]
+        v (gensym "cat-")
+        g (gather-sym (dec (:next-depth @*op-state* 0)))]
     (swap! *op-state* update-in [:collect] (fnil inc 0))
-    (swap! *op-state* update-in [:walk] (fnil inc 0))
-    (compile-with {:with {:binding v :init (compile-ops [{:expr expr}] [])}}
-                  after
-                  (conj vars {:add 'concat :var v}))))
+    (compile-ops
+     (concat [{:with {:binding v :init (compile-ops [{:expr expr}] [])}}]
+             [{:with {:binding g :init (compile-ops [{:expr `(into ~g ~v)}] [])}}]
+             after)
+     (conj gather g))))
 
-(defn- compile-begin [op after vars]
+(defn- compile-next [op after gather]
+  (let [next (:next op)
+        pro {:prologue {:next-var (:var next)
+                        :next-incr (:incr next)
+                        :next-init (:init next)}}
+        depth (:next-depth @*op-state* 0)]
+    (swap! *op-state* update-in [:next-depth] (fnil inc 0))
+    [{:next {:payload next
+             :depth depth
+             :forms (compile-ops (cons pro after) (conj gather sentinel))}}]))
+
+(defn- compile-begin [op after gather]
   (swap! *op-state* update-in [:begin] concat (compile-ops (:begin op) []))
-  (compile-ops after vars))
+  (compile-ops after gather))
 
-(defn- compile-end [op after vars]
+(defn- compile-end [op after gather]
   (swap! *op-state* update-in [:end] concat (:end op))
-  (compile-ops after vars))
+  (doall (compile-ops (:end op) [])) ; force compile for any side effects
+  (compile-ops after gather))
 
-(defn- compile-stop [op vars]
-  (let [ends *ends*
-        forms [{:stop {:vars vars :expr (:stop op)}}]]
-    (if (not ends)
-        forms
-        (binding [*ends* nil]
-          (compile-ops (concat ends [op]) vars)))))
+(defn- compile-stop [op]
+  (let [ends *ends*]
+    (binding [*ends* nil]
+      (if ends
+          (compile-ops (concat ends [{:stop sentinel}]) [])
+          [{:stop sentinel}]))))
 
 (defn- compile-return [op]
   (swap! *op-state* update-in [:return] (fnil inc 0))
-  (swap! *op-state* update-in [:walk] (fnil inc 0))
-  [op])
+  (let [ends *ends*]
+    (binding [*ends* nil]
+      (if ends
+          (compile-ops (concat ends [op]) [])
+          [op]))))
 
-(defn- compile-finally-by [op after vars]
+(defn- compile-finally-by [op after gather]
   (swap! *op-state* update-in [:finally-by] (fnil conj #{}) (:finally-by op))
-  (compile-ops after vars))
+  (compile-ops after gather))
 
-(defn compile-gather [vars]
-  (if (empty? vars)
+(defn compile-gather [gather]
+  (if (empty? gather)
       []
-      (do
-        (swap! *op-state* update-in [:walk] (fnil inc 0))
-        [{:gather vars}])))
+      [{:gather gather}]))
 
-(defn compile-prologue [op after vars]
-  (swap! *op-state* update-in [:prologue] conj (:prologue op))
-  (compile-ops after vars))
+(defn compile-prologue [op after gather]
+  (swap! *op-state* update-in [:prologue] (fnil conj []) (:prologue op))
+  (compile-ops after gather))
 
-(defn- compile-ops [parsed vars]
+(defn- compile-ops [parsed gather]
   (if (empty? parsed)
-      (compile-gather vars)
+      (compile-gather gather)
       (let [op (first parsed)
             after (rest parsed)]
         (case (first (keys op))
-          :with (compile-with op after vars)
-          :if (compile-if op after vars)
-          :collect (compile-collect op after vars)
-          :collect-cat (compile-collect-cat op after vars)
-          :stop (compile-stop op vars)
+          :with (compile-with op after gather)
+          :if (compile-if op after gather)
+          :collect (compile-collect op after gather)
+          :collect-cat (compile-collect-cat op after gather)
+          :next (compile-next op after gather)
+          :stop (compile-stop op)
           :return (compile-return op)
-          :finally-by (compile-finally-by op after vars)
-          :do (compile-do op after vars)
-          :begin (compile-begin op after vars)
-          :end (compile-end op after vars)
-          :prologue (compile-prologue op after vars)
-          (cons op (compile-ops after vars))))))
+          :finally-by (compile-finally-by op after gather)
+          :do (compile-do op after gather)
+          :begin (compile-begin op after gather)
+          :end (compile-end op after gather)
+          :prologue (compile-prologue op after gather)
+          (cons op (compile-ops after gather))))))
 
 (defn- end-ops [parsed]
   (binding [*op-state* (atom {})]
-    (compile-ops parsed [sentinel])
+    (compile-ops parsed #{sentinel})
     (:end @*op-state*)))
 
 (defn- compile-ops-tree [parsed]
   (binding [*ends* (end-ops parsed)
             *op-state* (atom {})]
-    (let [ops (compile-ops parsed [sentinel])]
+    (let [ops (compile-ops parsed #{sentinel})]
       (when (> (count (:finally-by @*op-state*)) 1)
         (throw (IllegalArgumentException.
                 "iter: At most one :finally-by allowed")))
       (when (and (:return @*op-state*) (:collect @*op-state*))
         (throw (IllegalArgumentException.
                 "iter: can't mix :collect and :return")))
-      (if (or true (:walk @*op-state*))
-          [@*op-state* ops]
-          [@*op-state* (concat ops [{:gather []}])]))))
+      [(update-in @*op-state* [:prologue] conj {:end (compile-stop nil)})
+       ops])))
+
+(defn- build-prologue
+  "Build the prologue which contains all the bindings as we call each
+  step in the stepper.  We might see duplicate `accum` bindings as we
+  walk down multiple branches of an `if` expression, so delete those
+  here for efficiency."
+  [prologue]
+  (let [merged (->> prologue
+                    (map #(map-vals list %))
+                    (apply merge-with concat))
+        accums (->> (map #(hash-map :accum-var %1 :accum-init %2)
+                         (:accum-var merged) (:accum-init merged))
+                    (distinct-by :accum-var))]
+    (assoc merged
+           :depth 0
+           :end (mapcat :end prologue)
+           :accum-var (map :accum-var accums)
+           :accum-init (map :accum-init accums))))
 
 ;;;
 ;;; Generate the output state machine.
@@ -276,39 +300,79 @@
       x
       (list x)))
 
-(defn- output-if [test then else walk-recur]
+(defn- output-if [test then else prologue]
   `(if ~test
        (do
-         ~@(or (output (ensure-list then) walk-recur)
-               (list walk-recur)))
+         ~@(or (output (ensure-list then) prologue)
+               (list prologue)))
        (do
-         ~@(or (output (ensure-list else) walk-recur)
-               (list walk-recur)))))
+         ~@(or (output (ensure-list else) prologue)
+               (list prologue)))))
 
-(defn output-do [forms walk-recur]
-  `(do ~@(output forms walk-recur)))
+(defn- output-do [forms prologue]
+  (when (seq forms)
+    `(do ~@(output forms prologue))))
 
-(defn output-collects [vars]
-  (map (fn [e] `(~(:add e) ~(:var e)))
-       (remove #{sentinel} (reverse vars))))
+(defn- output-step-args [prologue]
+  (concat (:next-var prologue)
+          (:accum-var prologue)
+          [(gather-sym (:depth prologue))]))
 
-(defn output-gather [exprs walk-recur]
-  `(->> ~walk-recur
-        ~@(output-collects exprs)))
+(defn- output-step-vals [prologue]
+  (let [depth (:depth prologue)]
+    (concat (take depth (:next-var prologue))
+            [(nth (:next-init prologue) depth nil)]
+            (repeat (count (drop (inc depth) (:next-var prologue))) nil)
+            (if (zero? depth)
+                (:accum-init prologue)
+                (:accum-var prologue))
+            [(gather-sym (dec depth))])))
 
-(defn output-stop [vars expr]
-  (let [e (if (= expr sentinel)
-              nil
-              [expr])]
-    `(->> ~e
-          ~@(output-collects vars))))
+(defn- output-parent-recur [next prologue]
+  (if (zero? (:depth prologue))
+      (output-do (:end prologue) prologue)
+      (let [depth (:depth prologue)
+            parent (dec depth)
+            gparent (dec parent)
+            parent-step (step-sym parent)]
+        `(~parent-step ~@(concat (take parent (:next-var prologue))
+                                 [(nth (:next-incr prologue) parent nil)]
+                                 (repeat (count (drop (inc parent)
+                                                      (:next-var prologue))) nil)
+                                 (:accum-var prologue)
+                                 [(gather-sym gparent)])))))
+
+(defn- output-next [next depth forms prologue]
+  (let [step (step-sym depth)
+        prologue (assoc prologue :depth depth)]
+    `(let [~step (fn ~step [~@(output-step-args prologue)]
+                   (lazy-seq
+                    (if ~(:done? next)
+                        ~(output-parent-recur next prologue)
+                        (do
+                          ~@(output forms prologue)))))]
+       (~step ~@(output-step-vals prologue)))))
+
+(defn output-gather [vars prologue]
+  (let [step (step-sym (dec (count (:next-var prologue))))
+        oform `(~step ~@(concat (drop-last (:next-var prologue))
+                                [(last (:next-incr prologue))]
+                                (:accum-var prologue)
+                                [(gather-sym -1)]))]
+    (when step
+      (if (empty? (remove #{sentinel} vars))
+          oform
+          `(concat ~(gather-sym (:depth prologue)) ~oform)))))
+
+(defn output-stop [prologue]
+  (gather-sym (:depth prologue)))
 
 (defn output-return [expr]
   [expr])
 
-(defn- output-with [binding init ops walk-recur]
-  `(let [~binding ~@(output init walk-recur)]
-     ~@(output ops walk-recur)))
+(defn- output-with [binding init ops prologue]
+  `(let [~binding ~@(output init prologue)]
+     ~@(output ops prologue)))
 
 (defn output-begin [forms]
   (when forms
@@ -319,27 +383,28 @@
       `(~(first finally-by) ~val)
       val))
 
-(defn- output-op [op walk-recur]
+(defn- output-op [op prologue]
   (match [op]
     [{:expr expr}]                              expr
-    [{:gather exprs}]                           (output-gather exprs walk-recur)
-    [{:stop {:vars vars :expr expr}}]           (output-stop vars expr)
+    [{:gather vars}]                            (output-gather vars prologue)
+    [{:stop sentinel}]                          (output-stop prologue)
     [{:return expr}]                            (output-return expr)
-    [{:do forms}]                               (output-do forms walk-recur)
-    [{:if {:test test :then then :else else}}]  (output-if test then else walk-recur)
-    [{:with {:ops ops, :binding binding
-             :expr expr}}]                      (output-with binding expr ops walk-recur)
-             :else                                       nil))
+    [{:do forms}]                               (output-do forms prologue)
+    [{:if {:test test :then then :else else}}]  (output-if test then else prologue)
+    [{:next {:payload next :depth d :forms f}}] (output-next next d f prologue)
+    [{:with {:ops ops :binding binding
+             :expr expr}}]                      (output-with binding expr ops prologue)
+    :else                                       nil))
 
 (defn- output
-  "Generate the output for the walker state machine.  The walker
+  "Generate the output for the stepper state machine.  The stepper
    creates a lazy sequence and the state machine is what we do for each
-   iteration of the walker.
+   iteration of the stepper.
 
-   Ops are the compiled operators and walk-recur is the expression
-   used to recursively call the walker."
-  [ops walk-recur]
-  (seq (map #(output-op % walk-recur) ops)))
+   Ops are the compiled operators and prologue is needed to
+   recursively call the stepper."
+  [ops prologue]
+  (seq (map #(output-op % prologue) ops)))
 
 ;;;
 ;;; Main entry point
@@ -361,19 +426,13 @@
   (let [parsed (build-parse-tree clauses)
         [op-state ops] (compile-ops-tree parsed)
         prologue (build-prologue (:prologue op-state))
-        res (gensym "res-")
-        walk (gensym "walk-")
-        walk-recur `(~walk ~@(:init-vars prologue))]
-    `(let [~walk (fn ~walk [~@(:init-vars prologue)] ; The lazy-seq walker
-                   (lazy-seq
-                    ~@(output ops walk-recur)))]
-       ~(output-begin (:begin op-state))             ; Any initial steps
-       (let [~res (~walk ~@(:seq prologue)           ; Call the walker
-                         ~@(:init-vals prologue))]
-         ~(output-finally-by (if (:return op-state)  ; Post process the result
-                                 `(first ~res)
-                                 res)
-                             (:finally-by op-state))))))
+        res (gensym "res-")]
+    `(let [~res (do ~@(output (concat (:begin op-state) ops)
+                              prologue))]
+       ~(output-finally-by (if (:return op-state) ; Post process the result
+                               `(first ~res)
+                               `(seq ~res))
+                           (:finally-by op-state)))))
 
 (defn- dump-iter
   "Print the generated Clojure"
@@ -387,20 +446,53 @@
 ;;; Higher order macros.  Now that the compiler is defined we can
 ;;; extend the langauge with these macros.  We need to be careful
 ;;; about using Clojure gensym variables - since the macros can be
-;;; expanded together, we always use the (gensym) function for vars
-;;; rather than var# to avoid any variable collisions.
+;;; expanded together, we use the (gensym) function for vars rather
+;;; than var# to avoid any variable collisions.
 
 (def ^:private reduce-var (gensym "r-"))
 
-(define-iter-clause reducing
-  [expr & {:keys [by init]}]
+(define-iter-clause foreach
+  ([var coll & colls]
+   `(foreach ~var (map vector ~coll ~@colls)))
+  ([var coll]
+    (let [xs (gensym (str var "-s-"))]
+      `(do
+         (:next ~xs (rest ~xs) ~coll (empty? ~xs))
+         (with ~var (first ~xs))))))
+
+(define-iter-clause forlist [var coll]
+  `(:next ~var (rest ~var) ~coll (empty? ~var)))
+
+(define-iter-clause with-prev
+  ([var ovar]
+   `(with-prev ~var ~ovar nil))
+  ([var ovar initially]
+   (let [prev (gensym "prev-")]
+     `(do
+        (with ~var ~prev)
+        (accum ~prev ~ovar ~initially)))))
+
+(define-iter-clause with-first [var]
+  `(with-prev ~var false true))
+
+(define-iter-clause fornext
+  ([var next-expr]
+   `(fornext ~var ~next-expr nil))
+  ([var next-expr init]
+   `(:next ~var ~next-expr ~init false)))
+
+(define-iter-clause reducing [expr & {:keys [by init finally]}]
   (if init
       `(do
          (collect ~expr)
-         (finally-by (fn [~reduce-var] (reduce ~by ~init ~reduce-var))))
+         (finally-by (fn [~reduce-var] ~(if finally
+                                            `(~finally (reduce ~by ~init ~reduce-var))
+                                            `(reduce ~by ~init ~reduce-var)))))
       `(do
          (collect ~expr)
-         (finally-by (fn [~reduce-var] (reduce ~by ~reduce-var))))))
+         (finally-by (fn [~reduce-var] ~(if finally
+                                            `(~finally (reduce ~by ~reduce-var))
+                                            `(reduce ~by ~reduce-var)))))))
 
 (define-iter-clause finding
   ([expr]
@@ -427,11 +519,15 @@
            (collect ~x))
        (accum ~seen?-var (conj ~seen?-var ~x) #{}))))
 
-(define-iter-clause maximize [x]
-  `(reducing ~x :by max))
+(define-iter-clause maximize [x & {:keys [where]}]
+  (if where
+      `(reducing [~where ~x] :by (partial max-key) :finally second)
+      `(reducing ~x :by max)))
 
-(define-iter-clause minimize [x]
-  `(reducing ~x :by min))
+(define-iter-clause minimize [x & {:keys [by]}]
+  (if by
+      `(reducing [~by ~x] :by (partial min-key) :finally second)
+      `(reducing ~x :by min)))
 
 (define-iter-clause sum [x]
   `(reducing ~x :by +))
@@ -445,37 +541,3 @@
   `(do
      (accum ~counter-var (inc ~counter-var) 0)
      (end (return ~counter-var))))
-
-(define-iter-clause for-each [var coll]
-  (let [xs (gensym "xs-")]
-    `(do
-       (if (not ~xs)
-           (stop))
-       (with ~var (first ~xs))
-       (accum ~xs (seq (rest ~xs)) (seq ~coll)))))
-
-(define-iter-clause for-list [var coll]
-  (let [xs (gensym "xs-")]
-    `(do
-       (if (empty? ~xs)
-           (stop))
-       (with ~var ~xs)
-       (accum ~xs (rest ~xs) ~coll))))
-
-(define-iter-clause for-prev
-  ([var ovar]
-   `(for-prev ~var ~ovar nil))
-  ([var ovar initially]
-   (let [prev (gensym "prev-")]
-     `(do
-        (with ~var ~prev)
-        (accum ~prev ~ovar ~initially)))))
-
-(define-iter-clause for-next
-  ([var next-expr]
-   `(for-next ~var ~next-expr nil))
-  ([var next-expr init]
-   (let [x (gensym "x-")]
-     `(do
-        (with ~var ~x)
-        (accum ~x ~next-expr ~init)))))
