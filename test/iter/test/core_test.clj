@@ -2,7 +2,7 @@
   "@ctdean"
   (:require [clojure.test :refer :all])
   (:require [clojure.pprint :refer [cl-format]])
-  (:require [iter.core :refer [iter define-iter-clause]]))
+  (:require [iter.core :refer [iter define-iter-op]]))
 
 (deftest raw-test
   (is (= [1 4 9]
@@ -285,7 +285,11 @@
   (is (= 100
          (iter (foreach x [])
                (if (even? x)
-                   (reducing x :init 100 :by +))))))
+                   (reducing x :init 100 :by +)))))
+  (is (= 101
+         (iter (foreach x [])
+               (if (even? x)
+                   (reducing x :init 100 :by + :finally-by inc))))))
 
 (deftest finally-by-test
   (is (= 45
@@ -347,7 +351,7 @@
                      (collect x)
                      (accum seen? (conj seen? x) #{})))))))
 
-(define-iter-clause my-maximizing [x]
+(define-iter-op my-maximizing [x]
   `(iter.core/reducing ~x :by max))
 
 (deftest define-iter-test
@@ -375,30 +379,41 @@
 (deftest agg-test
   (is (= 9
          (iter (foreach x [3 1 4 1 5 9 2 6 5 3 5 8 9 7 9 3])
-               (maximize x))))
+               (maximizing x))))
   (is (= 1
          (iter (foreach x [3 1 4 1 5 9 2 6 5 3 5 8 9 7 9 3])
-               (minimize x))))
+               (minimizing x))))
+  (is (= "programmable"
+         (iter (foreach s (clojure.string/split
+                           "Lisp is a programmable programming language" #" "))
+               (maximizing s :using (count s)))))
+  (is (= "a"
+         (iter (foreach s (clojure.string/split
+                           "Lisp is a programmable programming language" #" "))
+               (minimizing s :using (count s)))))
   (is (= 45
          (iter (foreach x (range 10))
-               (sum x))))
+               (summing x))))
   (is (= 25
          (iter (foreach x (range 10))
                (when (odd? x)
-                 (sum x)))))
+                 (summing x)))))
   (is (= 190
          (iter (foreach x (range 10))
                (when (odd? x)
-                 (sum (* x x))
-                 (sum x)))))
+                 (summing (* x x))
+                 (summing x)))))
   (is (= 15
          (iter (foreach x (range 6))
                (when (odd? x)
-                 (multiply x)))))
+                 (multiplying x)))))
   (is (= 5
          (iter (foreach x (range 10))
                (when (odd? x)
                  (counting x)))))
+  (is (= 2
+         (iter (foreach x [1 nil 2])
+               (counting x))))
   (is (= 9
          (iter (foreach x (range 10))
                (when (and (> x 0) (even? x))
@@ -433,7 +448,48 @@
                (collect x)
                (foreach y [88 99])
                (collect y))))
+  (is (= [[:row 1] [1 "a"] [1 "b"] [:row 2] [2 "a"] [2 "b"] [:row 3] [3 "a"] [3 "b"]]
+         (iter (foreach row [1 2 3])
+               (collect [:row row])
+               (foreach col ["a" "b"])
+               (collect [row col]))))
   (is (= ["comedy" "romance" "comedy" "romance" "action" "comedy"]
-         (iter (foreach t ["comedy" "romance" "comedy romance" "action comedy"])
+         (iter (foreach t ["comedy" "Romance" "Comedy Romance" "action comedy"])
                (foreach s (clojure.string/split t #" "))
                (collect (clojure.string/lower-case s))))))
+
+(deftest times-test
+  (is (= [:a :a :a :a :a :a :a :a]
+         (iter (times 8)
+               (collect :a))))
+  (is (= [:a]
+         (iter (times 1)
+               (collect :a))))
+  (is (nil?
+       (iter (times 0)
+             (collect :a))))
+  (is (nil?
+       (iter (times -1)
+             (collect :a))))
+  (is (= 123456
+         (count (take 123456
+                      (iter (times)
+                            (collect :a)))))))
+
+(deftest forlist-test
+  (is (= [[:a :b :c :d] [:b :c :d] [:c :d] [:d]]
+         (iter (forlist x [:a :b :c :d])
+               (collect x))))
+
+  (is (= '([2 3] [1 3] [8 1] [2 3] [8 1])
+         (iter (forlist nums [2 7 1 8 2 8 1 8 2])
+               (with head (first nums))
+               (with tail (rest nums))
+               (with dist (.indexOf tail head))
+               (when (> dist 0)
+                 (collect [head dist]))))))
+
+(deftest collect-uniq-test
+  (is (= '(3 1 4 5 9 2 6 8)
+         (iter (foreach x [3 1 4 1 5 9 2 6 5 3 5 8])
+               (collect-uniq x)))))

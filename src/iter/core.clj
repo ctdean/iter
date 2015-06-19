@@ -58,8 +58,8 @@
   (match (vec form)
     [:collect expr]                     {:collect expr}
     [:collect-cat expr]                 {:collect-cat expr}
-    [:next var incr init done?]         {:next {:var var :incr incr :init init
-                                                 :done? done?}}
+    [:fornext var incr init done?]      {:fornext {:var var :incr incr :init init
+                                                   :done? done?}}
     [:with var expr]                    {:with {:binding var :init [{:expr expr}]}}
     [:accum var expr init]              {:with {:binding var :init [{:expr expr}]}
                                          :prologue {:accum-var var :accum-init init}}
@@ -67,8 +67,8 @@
                                               :else nil}}
     [:if test then else]                {:if {:test test :then (build-parse-tree [then])
                                               :else (build-parse-tree [else])}}
-    [:begin expr]                       {:begin (build-parse-tree [expr])}
-    [:end expr]                         {:end (build-parse-tree [expr])}
+    [:begin & forms]                    {:begin (build-parse-tree forms)}
+    [:end & forms]                      {:end (build-parse-tree forms)}
     [:stop]                             {:stop sentinel}
     [:return expr]                      {:return expr}
     [:do & forms]                       {:do (build-parse-tree forms)}
@@ -105,7 +105,7 @@
     (swap! registered-macros assoc src fq-dst)
     (swap! registered-macros assoc fq-src fq-dst)))
 
-(defmacro define-iter-clause
+(defmacro define-iter-op
   "Define an iter macro.  The only difference between iter macros and
   regular macros is that iter macros are recursively parsed by iter.
 
@@ -117,21 +117,21 @@
   `(defmacro ~iname ~@args-body))
 
 ;; Macro versions of the builtin iter keywords.
-(define-iter-clause collect [& args]    `(:collect ~@args))
-(define-iter-clause collect-cat [& args] `(:collect-cat ~@args))
-(define-iter-clause do [& args]         `(:do ~@args))
-(define-iter-clause if [& args]         `(:if ~@args))
-(define-iter-clause begin [& args]      `(:begin ~@args))
-(define-iter-clause return [& args]     `(:return ~@args))
-(define-iter-clause stop []             `(:stop))
-(define-iter-clause end [& args]        `(:end ~@args))
-(define-iter-clause accum [& args]      `(:accum ~@args))
-(define-iter-clause with [& args]       `(:with ~@args))
-(define-iter-clause finally-by [& args] `(:finally-by ~@args))
+(define-iter-op collect [& args]    `(:collect ~@args))
+(define-iter-op collect-cat [& args] `(:collect-cat ~@args))
+(define-iter-op do [& args]         `(:do ~@args))
+(define-iter-op if [& args]         `(:if ~@args))
+(define-iter-op begin [& args]      `(:begin ~@args))
+(define-iter-op return [& args]     `(:return ~@args))
+(define-iter-op stop []             `(:stop))
+(define-iter-op end [& args]        `(:end ~@args))
+(define-iter-op accum [& args]      `(:accum ~@args))
+(define-iter-op with [& args]       `(:with ~@args))
+(define-iter-op finally-by [& args] `(:finally-by ~@args))
 
 ;; We need to define this here so we can use use WHEN in our normal
 ;; clojure code below.
-(define-iter-clause when [test & body]
+(define-iter-op when [test & body]
   `(if ~test
        (do ~@body)))
 
@@ -168,7 +168,7 @@
 (defn- compile-collect [op after gather]
   (let [expr (:collect op)
         v (gensym "collect-")
-        g (gather-sym (dec (:next-depth @*op-state* 0)))]
+        g (gather-sym (dec (:fornext-depth @*op-state* 0)))]
     (swap! *op-state* update-in [:collect] (fnil inc 0))
     (compile-ops
      (concat [{:with {:binding v :init (compile-ops [{:expr expr}] [])}}]
@@ -179,7 +179,7 @@
 (defn- compile-collect-cat [op after gather]
   (let [expr (:collect-cat op)
         v (gensym "cat-")
-        g (gather-sym (dec (:next-depth @*op-state* 0)))]
+        g (gather-sym (dec (:fornext-depth @*op-state* 0)))]
     (swap! *op-state* update-in [:collect] (fnil inc 0))
     (compile-ops
      (concat [{:with {:binding v :init (compile-ops [{:expr expr}] [])}}]
@@ -187,16 +187,16 @@
              after)
      (conj gather g))))
 
-(defn- compile-next [op after gather]
-  (let [next (:next op)
-        pro {:prologue {:next-var (:var next)
-                        :next-incr (:incr next)
-                        :next-init (:init next)}}
-        depth (:next-depth @*op-state* 0)]
-    (swap! *op-state* update-in [:next-depth] (fnil inc 0))
-    [{:next {:payload next
-             :depth depth
-             :forms (compile-ops (cons pro after) (conj gather sentinel))}}]))
+(defn- compile-fornext [op after gather]
+  (let [next (:fornext op)
+        pro {:prologue {:fornext-var (:var next)
+                        :fornext-incr (:incr next)
+                        :fornext-init (:init next)}}
+        depth (:fornext-depth @*op-state* 0)]
+    (swap! *op-state* update-in [:fornext-depth] (fnil inc 0))
+    [{:fornext {:payload next
+                :depth depth
+                :forms (compile-ops (cons pro after) (conj gather sentinel))}}]))
 
 (defn- compile-begin [op after gather]
   (swap! *op-state* update-in [:begin] concat (compile-ops (:begin op) []))
@@ -245,7 +245,7 @@
           :if (compile-if op after gather)
           :collect (compile-collect op after gather)
           :collect-cat (compile-collect-cat op after gather)
-          :next (compile-next op after gather)
+          :fornext (compile-fornext op after gather)
           :stop (compile-stop op)
           :return (compile-return op)
           :finally-by (compile-finally-by op after gather)
@@ -314,49 +314,49 @@
     `(do ~@(output forms prologue))))
 
 (defn- output-step-args [prologue]
-  (concat (:next-var prologue)
+  (concat (:fornext-var prologue)
           (:accum-var prologue)
           [(gather-sym (:depth prologue))]))
 
 (defn- output-step-vals [prologue]
   (let [depth (:depth prologue)]
-    (concat (take depth (:next-var prologue))
-            [(nth (:next-init prologue) depth nil)]
-            (repeat (count (drop (inc depth) (:next-var prologue))) nil)
+    (concat (take depth (:fornext-var prologue))
+            [(nth (:fornext-init prologue) depth nil)]
+            (repeat (count (drop (inc depth) (:fornext-var prologue))) nil)
             (if (zero? depth)
                 (:accum-init prologue)
                 (:accum-var prologue))
             [(gather-sym (dec depth))])))
 
-(defn- output-parent-recur [next prologue]
+(defn- output-parent-recur [prologue]
   (if (zero? (:depth prologue))
       (output-do (:end prologue) prologue)
       (let [depth (:depth prologue)
             parent (dec depth)
             gparent (dec parent)
             parent-step (step-sym parent)]
-        `(~parent-step ~@(concat (take parent (:next-var prologue))
-                                 [(nth (:next-incr prologue) parent nil)]
+        `(~parent-step ~@(concat (take parent (:fornext-var prologue))
+                                 [(nth (:fornext-incr prologue) parent nil)]
                                  (repeat (count (drop (inc parent)
-                                                      (:next-var prologue))) nil)
+                                                      (:fornext-var prologue))) nil)
                                  (:accum-var prologue)
                                  [(gather-sym gparent)])))))
 
-(defn- output-next [next depth forms prologue]
+(defn- output-fornext [next depth forms prologue]
   (let [step (step-sym depth)
         prologue (assoc prologue :depth depth)]
     `(let [~step (fn ~step [~@(output-step-args prologue)]
                    (lazy-seq
                     (if ~(:done? next)
-                        ~(output-parent-recur next prologue)
+                        ~(output-parent-recur prologue)
                         (do
                           ~@(output forms prologue)))))]
        (~step ~@(output-step-vals prologue)))))
 
 (defn output-gather [vars prologue]
-  (let [step (step-sym (dec (count (:next-var prologue))))
-        oform `(~step ~@(concat (drop-last (:next-var prologue))
-                                [(last (:next-incr prologue))]
+  (let [step (step-sym (dec (count (:fornext-var prologue))))
+        oform `(~step ~@(concat (drop-last (:fornext-var prologue))
+                                [(last (:fornext-incr prologue))]
                                 (:accum-var prologue)
                                 [(gather-sym -1)]))]
     (when step
@@ -391,7 +391,8 @@
     [{:return expr}]                            (output-return expr)
     [{:do forms}]                               (output-do forms prologue)
     [{:if {:test test :then then :else else}}]  (output-if test then else prologue)
-    [{:next {:payload next :depth d :forms f}}] (output-next next d f prologue)
+    [{:fornext
+      {:payload next :depth d :forms f}}]       (output-fornext next d f prologue)
     [{:with {:ops ops :binding binding
              :expr expr}}]                      (output-with binding expr ops prologue)
     :else                                       nil))
@@ -451,50 +452,58 @@
 
 (def ^:private reduce-var (gensym "r-"))
 
-(define-iter-clause foreach
+(define-iter-op foreach
   ([var coll & colls]
    `(foreach ~var (map vector ~coll ~@colls)))
   ([var coll]
     (let [xs (gensym (str var "-s-"))]
       `(do
-         (:next ~xs (rest ~xs) ~coll (empty? ~xs))
+         (:fornext ~xs (rest ~xs) ~coll (empty? ~xs))
          (with ~var (first ~xs))))))
 
-(define-iter-clause forlist [var coll]
-  `(:next ~var (rest ~var) ~coll (empty? ~var)))
+(define-iter-op forlist [var coll]
+  (let [xs (gensym (str var "-s-"))]
+    `(do
+       (:fornext ~xs (rest ~xs) ~coll (empty? ~xs))
+       (with ~var ~xs))))
 
-(define-iter-clause with-prev
-  ([var ovar]
-   `(with-prev ~var ~ovar nil))
-  ([var ovar initially]
+(define-iter-op with-prev
+  ([var old-var]
+   `(with-prev ~var ~old-var nil))
+  ([var old-var init]
    (let [prev (gensym "prev-")]
      `(do
         (with ~var ~prev)
-        (accum ~prev ~ovar ~initially)))))
+        (accum ~prev ~old-var ~init)))))
 
-(define-iter-clause with-first [var]
+(define-iter-op with-first [var]
   `(with-prev ~var false true))
 
-(define-iter-clause fornext
+(define-iter-op fornext
   ([var next-expr]
    `(fornext ~var ~next-expr nil))
   ([var next-expr init]
-   `(:next ~var ~next-expr ~init false)))
+   `(fornext ~var ~next-expr ~init false))
+  ([var next-expr init done?]
+   `(:fornext ~var ~next-expr ~init ~done?)))
 
-(define-iter-clause reducing [expr & {:keys [by init finally]}]
+(define-iter-op reducing [expr & {:keys [by init finally-by]}]
+  (assert by "reducing: missing :by keyword")
   (if init
       `(do
          (collect ~expr)
-         (finally-by (fn [~reduce-var] ~(if finally
-                                            `(~finally (reduce ~by ~init ~reduce-var))
-                                            `(reduce ~by ~init ~reduce-var)))))
+         (:finally-by (fn [~reduce-var]
+                        ~(if finally-by
+                             `(~finally-by (reduce ~by ~init ~reduce-var))
+                             `(reduce ~by ~init ~reduce-var)))))
       `(do
          (collect ~expr)
-         (finally-by (fn [~reduce-var] ~(if finally
-                                            `(~finally (reduce ~by ~reduce-var))
-                                            `(reduce ~by ~reduce-var)))))))
+         (:finally-by (fn [~reduce-var]
+                        ~(if finally-by
+                             `(~finally-by (reduce ~by ~reduce-var))
+                             `(reduce ~by ~reduce-var)))))))
 
-(define-iter-clause finding
+(define-iter-op finding
   ([expr]
    (let [finding (gensym "finding-")]
      `(do
@@ -505,13 +514,13 @@
    `(when ~where
       (return ~expr))))
 
-(define-iter-clause collect-map [key value]
+(define-iter-op collect-map [key value]
   `(reducing [~key ~value] :init {} :by (fn [acc# [k# v#]]
                                           (assoc acc# k# v#))))
 
 (def ^:private seen?-var (gensym "seen?-"))
 
-(define-iter-clause collect-uniq [val]
+(define-iter-op collect-uniq [val]
   (let [x (gensym "x-")]
     `(do
        (with ~x ~val)
@@ -519,25 +528,34 @@
            (collect ~x))
        (accum ~seen?-var (conj ~seen?-var ~x) #{}))))
 
-(define-iter-clause maximize [x & {:keys [where]}]
-  (if where
-      `(reducing [~where ~x] :by (partial max-key) :finally second)
+(define-iter-op maximizing [x & {:keys [using]}]
+  (if using
+      `(reducing [~using ~x] :by (partial max-key first) :finally-by second)
       `(reducing ~x :by max)))
 
-(define-iter-clause minimize [x & {:keys [by]}]
-  (if by
-      `(reducing [~by ~x] :by (partial min-key) :finally second)
+(define-iter-op minimizing [x & {:keys [using]}]
+  (if using
+      `(reducing [~using ~x] :by (partial min-key first) :finally-by second)
       `(reducing ~x :by min)))
 
-(define-iter-clause sum [x]
+(define-iter-op summing [x]
   `(reducing ~x :by +))
 
-(define-iter-clause multiply [x]
+(define-iter-op multiplying [x]
   `(reducing ~x :by *))
 
 (def ^:private counter-var (gensym "counter-"))
 
-(define-iter-clause counting [x]
+(define-iter-op counting [x]
   `(do
-     (accum ~counter-var (inc ~counter-var) 0)
+     (when ~x
+       (accum ~counter-var (inc ~counter-var) 0))
      (end (return ~counter-var))))
+
+(define-iter-op times
+  ([how-many]
+   (let [n (gensym "n-")]
+     `(:fornext ~n (dec ~n) ~how-many (<= ~n 0))))
+  ([]
+   (let [n (gensym "n-")]
+     `(:fornext ~n nil nil false))))
