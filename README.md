@@ -16,6 +16,12 @@ Iter is inspired to the Common Lisp Iterate package
 https://common-lisp.net/project/iterate/doc/index.html#Top and has
 some similarities to list comprehension systems.
 
+# Installation
+
+Add the following to your project.clj `:dependencies`
+
+    [ctdean/iter "0.2.0"]
+
 # Overview
 
 `iter` is an alternate way of iterating and looping to using the
