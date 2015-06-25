@@ -4,7 +4,7 @@
   (:require [clojure.pprint :refer [cl-format]])
   (:require [iter.core :refer [iter define-iter-op]]))
 
-(deftest raw-test
+(deftest simple-test
   (is (= [1 4 9]
          (iter (foreach x [1 2 3])
                (collect (* x x)))))
@@ -203,12 +203,12 @@
     (is (= [:a :b] @state))))
 
 (deftest end-test
-  (is (= [[:z 0] [:z 1] [:z 2] [:z 3] [:z 4] :done]
+  (is (= [0 1 2 3 4 :done]
          (iter (foreach x (range 10))
                (end (collect :done))
                (if (> x 4)
                    (stop))
-               (collect [:z x]))))
+               (collect x))))
   (let [state (atom [])]
     (is (= [0 1 2 3 4 :done]
            (iter (foreach x (range 10))
@@ -246,6 +246,16 @@
   (is (= 64
          (iter (foreach x (range 10))
                (if (and (zero? (mod x 4)) (> x 5))
+                   (return (* x x))))))
+  (is (= 25
+         (iter (foreach x (range 10))
+               (end 'no-op)
+               (if (> x 4)
+                   (return (* x x))))))
+  (is (= 88
+         (iter (foreach x (range 10))
+               (end (return 88))
+               (if (> x 4)
                    (return (* x x))))))
   (is (= 2
          (find-next :b [:a 1 :b 2 :c 3] )))
@@ -456,7 +466,12 @@
   (is (= ["comedy" "romance" "comedy" "romance" "action" "comedy"]
          (iter (foreach t ["comedy" "Romance" "Comedy Romance" "action comedy"])
                (foreach s (clojure.string/split t #" "))
-               (collect (clojure.string/lower-case s))))))
+               (collect (clojure.string/lower-case s)))))
+  (is (= [:a :b :c]
+         (iter (foreach x [:a :b :c])
+               (collect x)
+               (foreach y [])
+               (collect y)))))
 
 (deftest times-test
   (is (= [:a :a :a :a :a :a :a :a]
