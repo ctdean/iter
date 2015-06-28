@@ -67,8 +67,12 @@
                                               :else (build-parse-tree [else])}}
     [:begin & forms]                    {:begin (build-parse-tree forms)}
     [:end & forms]                      {:end (build-parse-tree forms)}
-    [:stop]                             {:stop sentinel}
     [:return expr]                      {:return expr}
+    [:stop]                             {:stop Integer/MAX_VALUE}
+    [:break]                            {:stop 1}
+    [:break nlevels]                    {:stop nlevels}
+    [:continue]                         {:stop -1}
+    [:continue nlevels]                 {:stop (- nlevels)}
     [:do & forms]                       {:do (build-parse-tree forms)}
     [:finally-by f]                     {:finally-by f}
     :else                               (maybe-expand form)))
@@ -126,6 +130,15 @@
 (define-iter-op accum [var expr init]   `(:accum ~var ~expr ~init))
 (define-iter-op with [var expr]         `(:with ~var ~expr))
 (define-iter-op finally-by [f]          `(:finally-by ~f))
+(define-iter-op do [& body]             `(:do ~@body))
+
+(define-iter-op break
+  ([] `(:break))
+  ([nlevels] `(:break ~nlevels)))
+
+(define-iter-op continue
+  ([] `(:continue))
+  ([nlevels] `(:continue ~nlevels)))
 
 ;; We need to define this here so we can use use WHEN in our normal
 ;; clojure code below.
@@ -207,7 +220,7 @@
   (compile-ops after gather))
 
 (defn- compile-stop [op]
-  [{:stop sentinel}])
+  [op])
 
 (defn- compile-return [op]
   (swap! *op-state* update-in [:return] (fnil inc 0))
@@ -217,10 +230,10 @@
   (swap! *op-state* update-in [:finally-by] (fnil conj #{}) (:finally-by op))
   (compile-ops after gather))
 
-(defn- compile-gather [gather]
-  (if (empty? gather)
+(defn- compile-gather [gather-vars]
+  (if (empty? gather-vars)
       []
-      [{:gather gather}]))
+      [{:gather gather-vars}]))
 
 (defn- compile-prologue [op after gather]
   (swap! *op-state* update-in [:prologue] (fnil conj []) (:prologue op))
@@ -379,10 +392,25 @@
                   oform
                   `(concat ~(gather-sym (:depth header)) ~oform))))))
 
-(defn- output-stop [header]
+(defn- output-stop-all [header]
   (if-let [fn-name (:exit-fn header)]
     `(~fn-name ~@(output-wrapper-vals header))
     (gather-sym 0)))
+
+(defn- output-stop [nlevels header]
+  (if (neg? nlevels)
+      (output-stop (dec (- nlevels)) header)
+      (let [depth (:depth header)
+            target (- depth nlevels)]
+        (if (neg? target)
+            (output-stop-all header)
+            (let [step (step-sym target)]
+              `(~step ~@(concat (take target (:fornext-var header))
+                                [(nth (:fornext-incr header) target nil)]
+                                (repeat (count (drop (inc target)
+                                                     (:fornext-var header))) nil)
+                                (:accum-var header)
+                                [(gather-sym target)])))))))
 
 (defn- output-return [expr header]
   `(let [~(gather-sym 0) [~expr]]
@@ -412,7 +440,7 @@
   (match [op]
     [{:expr expr}]                              expr
     [{:gather vars}]                            (output-gather vars header)
-    [{:stop sentinel}]                          (output-stop header)
+    [{:stop nlevels}]                           (output-stop nlevels header)
     [{:return expr}]                            (output-return expr header)
     [{:do forms}]                               (output-do forms header)
     [{:if {:test test :then then :else else}}]  (output-if test then else header)

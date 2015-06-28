@@ -447,6 +447,43 @@ Stop execution of the `iter` forms.
 
       => (3 1 4 1 5)
 
+### break
+
+`(break)`
+
+`(break nlevels)`
+
+Like the C Language `break`, stop the iteration of the current loop.
+If used inside a nested loop, the outer loop keeps executing.
+
+If `nlevels` is given in a nested loop, break out of that many loops.
+
+    (iter (foreach x (range 10))
+          (if (> x 4)
+              (break))
+          (collect x))
+
+      => (0 1 2 3 4)
+
+### continue
+
+`(continue)`
+
+`(continue nlevels)`
+
+Like the C Language `continue`, skip the this step in the iteration of
+the current loop.
+
+If `nlevels` is given and we are in a nested loop, continue with the
+loop that many levels out.
+
+    (iter (foreach x (range 10))
+          (if (even? x)
+              (continue))
+          (collect x))
+
+      => (1 3 5 7 9)
+
 ### finding
 
 `(finding expr)`

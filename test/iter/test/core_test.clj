@@ -190,6 +190,146 @@
                (collect [:a x])
                (foreach y (range 2))))))
 
+(deftest break-test
+  (is (= [0 1 2]
+         (iter (foreach x (range 10))
+               (if (> x 2)
+                   (break))
+               (collect x))))
+  (is (= [0 1 2 3]
+         (iter (foreach x (range 10))
+               (collect x)
+               (if (> x 2)
+                   (break)))))
+  (is (= [0 1 2 3 :done]
+         (iter (foreach x (range 10))
+               (collect x)
+               (if (> x 2)
+                   (break))
+               (end (collect :done)))))
+  (is (= [0 [0 0] [0 1] [0 2]
+          1 [1 0] [1 1] [1 2]
+          2 [2 0] [2 1] [2 2]
+          3 [3 0] [3 1] [3 2]
+          :done]
+         (iter (foreach x (range 4))
+               (collect x)
+               (foreach y (range 5))
+               (if (> y 2)
+                   (break))
+               (collect [x y])
+               (end (collect :done)))))
+  (is (= [0 [0 0] [0 1] [0 2] :done]
+         (iter (foreach x (range 4))
+               (collect x)
+               (foreach y (range 5))
+               (if (> y 2)
+                   (break 2))
+               (collect [x y])
+               (end (collect :done)))))
+  (is (= [[0 0 0] [0 0 1] [0 1 0] [0 1 1] [0 2 0] [0 2 1]
+          [1 0 0] [1 0 1] [1 1 0] [1 1 1] [1 2 0] [1 2 1]
+          [2 0 0] [2 0 1] [2 1 0] [2 1 1] [2 2 0] [2 2 1]
+          :done]
+         (iter (foreach x (range 3))
+               (foreach y (range 3))
+               (foreach z (range 3))
+               (if (> z 1)
+                   (break))
+               (collect [x y z])
+               (end (collect :done)))))
+  (is (= [[0 0 0] [0 0 1]
+          [1 0 0] [1 0 1]
+          [2 0 0] [2 0 1]
+          :done]
+         (iter (foreach x (range 3))
+               (foreach y (range 3))
+               (foreach z (range 3))
+               (if (> z 1)
+                   (break 2))
+               (collect [x y z])
+               (end (collect :done)))))
+  (is (= [[0 0 0] [0 0 1] :done]
+         (iter (foreach x (range 3))
+               (foreach y (range 3))
+               (foreach z (range 3))
+               (if (> z 1)
+                   (break 3))
+               (collect [x y z])
+               (end (collect :done))))))
+
+(deftest continue-test
+  (is (= [0 2 4 6 8]
+         (iter (foreach x (range 10))
+               (if (odd? x)
+                   (continue))
+               (collect x))))
+  (is (= [0 :a 1 2 :a 3 4 :a 5 6 :a 7 8 :a 9]
+         (iter (foreach x (range 10))
+               (collect x)
+               (if (odd? x)
+                   (continue))
+               (collect :a))))
+  (is (= [0 2 4 6 8 :done]
+         (iter (foreach x (range 10))
+               (if (odd? x)
+                   (continue))
+               (collect x)
+               (end (collect :done)))))
+  (is (= [0
+          [0 0] [0 1] [0 2] [0 3] [0 4]
+          1 2
+          [2 0] [2 1] [2 2] [2 3] [2 4]
+          3 :done]
+         (iter (foreach x (range 4))
+               (collect x)
+               (foreach y (range 5))
+               (if (odd? x)
+                   (continue))
+               (collect [x y])
+               (end (collect :done)))))
+  (is (= [0 [0 0] [0 1] [0 2] :done]
+         (iter (foreach x (range 4))
+               (collect x)
+               (foreach y (range 5))
+               (if (> y 2)
+                   (break 2))
+               (collect [x y])
+               (end (collect :done)))))
+  (is (= [[0 0 1] [0 1 1] [0 2 1]
+          [1 0 1] [1 1 1] [1 2 1]
+          [2 0 1] [2 1 1] [2 2 1]
+          :done]
+         (iter (foreach x (range 3))
+               (foreach y (range 3))
+               (foreach z (range 3))
+               (if (even? z)
+                   (continue))
+               (collect [x y z])
+               (end (collect :done)))))
+  (is (= [[0 0 0] [0 1 0] [0 2 0]
+          [1 0 0] [1 1 0] [1 2 0]
+          [2 0 0] [2 1 0] [2 2 0]
+          :done]
+         (iter (foreach x (range 3))
+               (foreach y (range 3))
+               (foreach z (range 3))
+               (if (odd? z)
+                   (continue 2))
+               (collect [x y z])
+               (end (collect :done)))))
+  (is (= [[0 0 0] [0 0 1]
+          [1 0 0] [1 0 1]
+          [2 0 0] [2 0 1]
+          :done]
+         (iter (foreach x (range 3))
+               (foreach y (range 3))
+               (foreach z (range 3))
+               (if (> z 1)
+                   (continue 3))
+               (collect [x y z])
+               (end (collect :done))))))
+
 (deftest begin-test
   (let [state (atom [])]
     (is (= [0 1 2 3 4]
