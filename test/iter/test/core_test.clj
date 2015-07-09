@@ -2,7 +2,7 @@
   "@ctdean"
   (:require [clojure.test :refer :all])
   (:require [clojure.pprint :refer [cl-format]])
-  (:require [iter.core :refer [iter define-iter-op]]))
+  (:require [iter.core :refer [iter iter* define-iter-op]]))
 
 (deftest simple-test
   (is (= [1 4 9]
@@ -40,6 +40,22 @@
                             x
                             (- x))))))
   )
+
+(deftest iter*-test
+  (is (= (range 10)
+         (let [state (atom [])]
+           (iter* (foreach x (range 10)) (swap! state conj x) (collect x))
+           @state)))
+  (is (>= 10
+         (let [state (atom [])]
+           (iter (foreach x (range 10)) (swap! state conj x) (collect x))
+           (count @state))))
+  (is (= (range 10)
+         (let [state (atom [])]
+           (iter* (foreach x (range 10)) (swap! state conj x))
+           @state)))
+  (is (= (range 10)
+         (iter* (foreach x (range 10)) (collect x)))))
 
 (deftest if-test
   (is (= [0 2 4 4 16 6 36 8 64 10]
@@ -648,3 +664,9 @@
   (is (= '(3 1 4 5 9 2 6 8)
          (iter (foreach x [3 1 4 1 5 9 2 6 5 3 5 8])
                (collect-uniq x)))))
+
+(deftest collect-freq-test
+  (is (= {"two" 2, "eight" 3}
+         (iter (foreach x [2 7 1 8 2 8 1 8])
+               (when (even? x)
+                 (collect-freq (cl-format nil "~r" x)))))))

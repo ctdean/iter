@@ -156,7 +156,7 @@ As mentioned, there are builtin iter operators like `collect`,
 `foreach`, and `accum` that can be used to create new operators with
 the `define-iter-op` clause.
 
-# Nested
+# Nested Loops
 
 When you have more that one iteration operator then `iter` creates
 nested loops:
@@ -217,7 +217,7 @@ Examples:
     (iter (foreach [name i] [:a :b :c :d] (range))
           (collect-map name i))
 
-See _Nested_ for examples of nested loops.
+See _Nested Loops_ for examples of nested loops.
 
 ### forlist
 
@@ -230,7 +230,7 @@ example,
     (iter (forlist x [:a :b :c :d])
           (prn x))
 
-prints
+when evaluated, prints
 
     [:a :b :c :d]
     (:b :c :d)
@@ -367,6 +367,18 @@ values:
           (collect-uniq x))
 
       => (3 1 4 5 9 2 6 8)
+
+### collect-freq
+
+`(collect-freq expr)`
+
+Just like `collect`, but returns a frequency count of the values:
+
+    (iter (foreach x [2 7 1 8 2 8 1 8])
+          (when (even? x)
+            (collect-freq (cl-format nil "~r" x))))
+
+      => {"two" 2, "eight" 3}
 
 ## Control Flow Operators
 
@@ -537,7 +549,9 @@ every other time.
             (print ", "))
           (print s))
 
-      prints: "Apple, Peaches, Pumpkin Pie"
+when evaluated, prints:
+
+    "Apple, Peaches, Pumpkin Pie"
 
 ### with-prev
 
@@ -705,7 +719,7 @@ Evaluate the `body` expressions before any iteration starts.  All
                      (begin (println "Start"))
                      (println i))
 
-prints
+When evaluated, prints
 
     Start
     0
@@ -725,7 +739,7 @@ variables are available in the end block.
           (end (println "Done"))
           (println i))
 
-prints
+when evaluated, prints
 
     0
     1
@@ -747,6 +761,27 @@ generates.
           (finally-by (fn [xs] (reduce + xs))))
 
       => 20
+
+# iter*
+
+Much in the same way you would use `doseq` for side effects, `iter*`
+can be used for looping side effects.
+
+Although you can wrap the normal `iter` expression in `(doall (iter ...)`,
+you can use `iter*` for the same purpose.  Be careful returning large
+sequences, as `iter*` causes the entire returning sequence to reside
+in memory.
+
+    (iter* (times 3)
+           (println "Hello world!"))
+
+      => nil
+
+Also prints:
+
+    Hello world!
+    Hello world!
+    Hello world!
 
 # Writing iter macros
 

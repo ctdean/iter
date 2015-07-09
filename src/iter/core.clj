@@ -465,19 +465,7 @@
 ;;; Main entry point
 ;;;
 
-(defmacro iter
-  "An iteration and looping DSL for Clojure.  Iter provides an
-  extensible looping language that is an alternate to higher order
-  functions.
-
-  For example
-
-      (iter (foreach x [1 2 3 4 5 6 7])
-            (when (> x 2)
-              (collect (* x x))))
-
-      => (9 16 25 36 49)"
-  [& clauses]
+(defn- iter-expand [clauses use-dorun?]
   (let [parsed (build-parse-tree clauses)
         [op-state ops] (compile-ops-tree parsed)
         header (build-header (:prologue op-state))
@@ -491,8 +479,32 @@
            ~res (~(or begin-fn master-fn) ~@(output-wrapper-vals-init header))]
        ~(output-finally-by (if (:return op-state) ; Post process the result
                                `(first ~res)
-                               `(seq ~res))
+                               (if use-dorun?
+                                   `(seq (doall ~res))
+                                   `(seq ~res)))
                            (:finally-by op-state)))))
+
+(defmacro iter
+  "An iteration and looping DSL for Clojure.  Iter provides an
+  extensible looping language that is an alternate to higher order
+  functions.
+
+  For example
+
+      (iter (foreach x [1 2 3 4 5 6 7])
+            (when (> x 2)
+              (collect (* x x))))
+
+      => (9 16 25 36 49)"
+  [& clauses]
+  (iter-expand clauses false))
+
+(defmacro iter*
+  "Just like iter, but used for side effects.  Evaluates as if `iter`
+   was surrounding in a doall.  This causes the entire return
+   expression to be contained memory."
+  [& clauses]
+  (iter-expand clauses true))
 
 (defn- dump-iter
   "Print the generated Clojure"
@@ -586,6 +598,11 @@
        (if (not (~seen?-var ~x))
            (collect ~x))
        (accum ~seen?-var (conj ~seen?-var ~x) #{}))))
+
+(define-iter-op collect-freq [val]
+  `(do
+     (collect ~val)
+     (finally-by frequencies)))
 
 (define-iter-op maximizing [x & {:keys [using]}]
   (if using
