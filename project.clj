@@ -1,8 +1,8 @@
 (defproject ctdean/iter
-  "0.5.0"
+  "0.5.1"
   :description "A smart looping iterator"
   :dependencies [
-                 [org.clojure/clojure "1.6.0"]
+                 [org.clojure/clojure "1.7.0"]
                  [medley "0.5.5"]
                  [org.clojure/core.match "0.3.0-alpha4"]
                  ]

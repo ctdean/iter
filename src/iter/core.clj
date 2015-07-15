@@ -17,7 +17,7 @@
   @ctdean"
   (:refer-clojure :exclude [when])
   (:require
-   [medley.core :refer :all]
+   [medley.core :refer [map-vals distinct-by]]
    [clojure.core.match :refer [match]]
    [clojure.pprint :refer [pprint]]
    [clojure.string :as string]))
