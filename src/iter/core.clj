@@ -15,7 +15,7 @@
   https://common-lisp.net/project/iterate/doc/index.html#Top
 
   @ctdean"
-  (:refer-clojure :exclude [when])
+  (:refer-clojure :exclude [when while let])
   (:require
    [medley.core :refer [map-vals distinct-by]]
    [clojure.core.match :refer [match]]
@@ -34,6 +34,15 @@
 
 ;; A sentinel variable value that shouldn't be returned to the user.
 (def ^:private sentinel (Object.))
+
+(defmacro def-function [& args] `(defn ~@args))
+
+;;;
+;;; Shadow clojure builtins
+;;;
+
+(defmacro xlet [& forms] `(clojure.core/let ~@forms))
+(defmacro xwhen [& forms] `(clojure.core/when ~@forms))
 
 ;;;
 ;;; Parse iter forms and return our version of an AST.
@@ -81,7 +90,7 @@
   "If this is an iter macro, then manually expand the form an
   recursively parse it."
   [form]
-  (let [name (first form)]
+  (xlet [name (first form)]
     (if (keyword? name)
         (throw (IllegalArgumentException.
                 (format "Unknown iter keyword %s => %s" name form)))
@@ -102,7 +111,7 @@
 ;;;
 
 (defn- reg-macro [src dst]
-  (let [fq-src (symbol (str (ns-name *ns*) "/" src))
+  (xlet [fq-src (symbol (str (ns-name *ns*) "/" src))
         fq-dst (symbol (str (ns-name *ns*) "/" dst))]
     (swap! registered-macros assoc src fq-dst)
     (swap! registered-macros assoc fq-src fq-dst)))
@@ -140,19 +149,13 @@
   ([] `(:continue))
   ([nlevels] `(:continue ~nlevels)))
 
-;; We need to define this here so we can use use WHEN in our normal
-;; clojure code below.
-(define-iter-op when [test & body]
-  `(if ~test
-       (do ~@body)))
-
 ;;;
 ;;; Compile the AST into operators for the output state machine.
 ;;;
 
 (def ^:private step-sym (memoize
                          (fn [depth]
-                           (when (>= depth 0)
+                           (xwhen (>= depth 0)
                              (gensym (str "step-" depth "-"))))))
 
 (def ^:private gather-sym-var (gensym (str "gather-")))
@@ -162,7 +165,7 @@
       gather-sym-var))
 
 (defn- compile-if [op after gather]
-  (let [x (:if op)]
+  (xlet [x (:if op)]
     [{:if {:test (:test x)
            :then (compile-ops (concat (:then x) after) gather)
            :else (compile-ops (concat (:else x) after) gather)}}]))
@@ -171,13 +174,13 @@
   (compile-ops (concat (:do op) after) gather))
 
 (defn- compile-with [op after gather]
-  (let [x (:with op)]
+  (xlet [x (:with op)]
     [{:with {:binding (:binding x)
              :expr (compile-ops (:init x) [])
              :ops (compile-ops after gather)}}]))
 
 (defn- compile-collect [op after gather]
-  (let [expr (:collect op)
+  (xlet [expr (:collect op)
         v (gensym "collect-")
         g (gather-sym (dec (:fornext-depth @*op-state* 0)))]
     (swap! *op-state* update-in [:collect] (fnil inc 0))
@@ -188,7 +191,7 @@
      (conj gather g))))
 
 (defn- compile-collect-cat [op after gather]
-  (let [expr (:collect-cat op)
+  (xlet [expr (:collect-cat op)
         v (gensym "cat-")
         g (gather-sym (dec (:fornext-depth @*op-state* 0)))]
     (swap! *op-state* update-in [:collect] (fnil inc 0))
@@ -199,7 +202,7 @@
      (conj gather g))))
 
 (defn- compile-fornext [op after gather]
-  (let [next (:fornext op)
+  (xlet [next (:fornext op)
         pro {:prologue {:fornext-var (:var next)
                         :fornext-incr (:incr next)
                         :fornext-init (:init next)}}
@@ -242,7 +245,7 @@
 (defn- compile-ops [parsed gather]
   (if (empty? parsed)
       (compile-gather gather)
-      (let [op (first parsed)
+      (xlet [op (first parsed)
             after (rest parsed)]
         (case (first (keys op))
           :with (compile-with op after gather)
@@ -260,10 +263,10 @@
           (cons op (compile-ops after gather))))))
 
 (defn- check-validity! [state]
-  (when (> (count (:finally-by state)) 1)
+  (xwhen (> (count (:finally-by state)) 1)
     (throw (IllegalArgumentException.
             "iter: At most one :finally-by allowed")))
-  (when (and (:return state) (:collect state))
+  (xwhen (and (:return state) (:collect state))
     (throw (IllegalArgumentException.
             "iter: can't mix :collect and :return")))
   (when-let [dups (->> (:prologue state)
@@ -279,7 +282,7 @@
 
 (defn- compile-ops-tree [parsed]
   (binding [*op-state* (atom {})]
-    (let [ops (compile-ops parsed #{sentinel})
+    (xlet [ops (compile-ops parsed #{sentinel})
           begin (when-let [p (:begin @*op-state*)]
                   (compile-ops p #{sentinel}))
           end (when-let [p (:end @*op-state*)]
@@ -294,7 +297,7 @@
   walk down multiple branches of an `if` expression, so delete those
   here for efficiency."
   [prologue]
-  (let [merged (->> prologue
+  (xlet [merged (->> prologue
                     (map #(map-vals list %))
                     (apply merge-with concat))
         accums (->> (map #(hash-map :accum-var %1 :accum-init %2)
@@ -324,7 +327,7 @@
                (list header)))))
 
 (defn- output-do [forms header]
-  (when (seq forms)
+  (xwhen (seq forms)
     `(do ~@(output forms header))))
 
 (defn- output-step-args [header]
@@ -333,7 +336,7 @@
           [(gather-sym 0)]))
 
 (defn- output-step-vals [header]
-  (let [depth (:depth header)]
+  (xlet [depth (:depth header)]
     (concat (take depth (:fornext-var header))
             [(nth (:fornext-init header) depth nil)]
             (repeat (count (drop (inc depth) (:fornext-var header))) nil)
@@ -354,7 +357,7 @@
       (if-let [fn-name (:exit-fn header)]
         `(~fn-name ~@(output-wrapper-vals header))
         (gather-sym 0))
-      (let [depth (:depth header)
+      (xlet [depth (:depth header)
             parent (dec depth)
             gparent (dec parent)
             parent-step (step-sym parent)]
@@ -366,9 +369,9 @@
                                  [(gather-sym parent)])))))
 
 (defn- output-fornext [next depth forms header]
-  (let [step (step-sym depth)
+  (xlet [step (step-sym depth)
         header (assoc header :depth depth)]
-    `(let [~step (fn ~step [~@(output-step-args header)]
+    `(xlet [~step (fn ~step [~@(output-step-args header)]
                    (lazy-seq
                     (if ~(:done? next)
                         ~(output-parent-recur header)
@@ -377,7 +380,7 @@
        (~step ~@(output-step-vals header)))))
 
 (defn- output-gather [vars header]
-  (let [fn-name (:gather-fn header)
+  (xlet [fn-name (:gather-fn header)
         step (step-sym (dec (count (:fornext-var header))))
         no-vars? (empty? (remove #{sentinel} vars))
         oform `(~step ~@(concat (drop-last (:fornext-var header))
@@ -387,7 +390,7 @@
     (cond
       (= fn-name :done) (gather-sym 0)
       fn-name `(~fn-name ~@(output-wrapper-vals header))
-      :else (when step
+      :else (xwhen step
               (if no-vars?
                   oform
                   `(concat ~(gather-sym (:depth header)) ~oform))))))
@@ -400,11 +403,11 @@
 (defn- output-stop [nlevels header]
   (if (neg? nlevels)
       (output-stop (dec (- nlevels)) header)
-      (let [depth (:depth header)
+      (xlet [depth (:depth header)
             target (- depth nlevels)]
         (if (neg? target)
             (output-stop-all header)
-            (let [step (step-sym target)]
+            (xlet [step (step-sym target)]
               `(~step ~@(concat (take target (:fornext-var header))
                                 [(nth (:fornext-incr header) target nil)]
                                 (repeat (count (drop (inc target)
@@ -413,17 +416,17 @@
                                 [(gather-sym target)])))))))
 
 (defn- output-return [expr header]
-  `(let [~(gather-sym 0) [~expr]]
+  `(xlet [~(gather-sym 0) [~expr]]
      ~(if-let [fn-name (:exit-fn header)]
         `(~fn-name ~@(output-wrapper-vals header))
         (gather-sym 0))))
 
 (defn- output-with [binding init ops header]
-  `(let [~binding ~@(output init header)]
+  `(xlet [~binding ~@(output init header)]
      ~@(output ops header)))
 
 (defn- output-begin [forms]
-  (when forms
+  (xwhen forms
     `(do ~@(map :expr forms))))
 
 (defn- output-finally-by [val finally-by]
@@ -432,7 +435,7 @@
       val))
 
 (defn- output-wrapper [fn-name ops header]
-  (when fn-name
+  (xwhen fn-name
     `(~fn-name (fn [~@(output-wrapper-args header)]
                  ~@(output ops header)))))
 
@@ -466,13 +469,13 @@
 ;;;
 
 (defn- iter-expand [clauses use-dorun?]
-  (let [parsed (build-parse-tree clauses)
+  (xlet [parsed (build-parse-tree clauses)
         [op-state ops] (compile-ops-tree parsed)
         header (build-header (:prologue op-state))
         [res master-fn] (map gensym ["res-" "master-"])
-        begin-fn (when (:begin op-state) (gensym "begin-"))
-        end-fn (when (:end op-state) (gensym "end-"))]
-    `(let [~@(output-wrapper end-fn (:end op-state) (assoc header :gather-fn :done))
+        begin-fn (xwhen (:begin op-state) (gensym "begin-"))
+        end-fn (xwhen (:end op-state) (gensym "end-"))]
+    `(xlet [~@(output-wrapper end-fn (:end op-state) (assoc header :gather-fn :done))
            ~@(output-wrapper master-fn ops (assoc header :exit-fn end-fn))
            ~@(output-wrapper begin-fn (:begin op-state)
                              (assoc header :exit-fn master-fn :gather-fn master-fn))
@@ -527,13 +530,13 @@
   ([var coll & colls]
    `(foreach ~var (map vector ~coll ~@colls)))
   ([var coll]
-    (let [xs (gensym (str var "-s-"))]
+    (xlet [xs (gensym (str var "-s-"))]
       `(do
          (:fornext ~xs (rest ~xs) ~coll (empty? ~xs))
          (with ~var (first ~xs))))))
 
 (define-iter-op forlist [var coll]
-  (let [xs (gensym (str var "-s-"))]
+  (xlet [xs (gensym (str var "-s-"))]
     `(do
        (:fornext ~xs (rest ~xs) ~coll (empty? ~xs))
        (with ~var ~xs))))
@@ -542,7 +545,7 @@
   ([var old-var]
    `(with-prev ~var ~old-var nil))
   ([var old-var init]
-   (let [prev (gensym "prev-")]
+   (xlet [prev (gensym "prev-")]
      `(do
         (with ~var ~prev)
         (accum ~prev ~old-var ~init)))))
@@ -557,6 +560,10 @@
    `(fornext ~var ~next-expr ~init false))
   ([var next-expr init done?]
    `(:fornext ~var ~next-expr ~init ~done?)))
+
+(define-iter-op forever []
+  (xlet [n (gensym "n-")]
+    `(:fornext ~n nil nil false)))
 
 (define-iter-op reducing [expr & {:keys [by init finally-by]}]
   (assert by "reducing: missing :by keyword")
@@ -576,7 +583,7 @@
 
 (define-iter-op finding
   ([expr]
-   (let [finding (gensym "finding-")]
+   (xlet [finding (gensym "finding-")]
      `(do
         (with ~finding ~expr)
         (when ~finding
@@ -592,7 +599,7 @@
 (def ^:private seen?-var (gensym "seen?-"))
 
 (define-iter-op collect-uniq [val]
-  (let [x (gensym "x-")]
+  (xlet [x (gensym "x-")]
     `(do
        (with ~x ~val)
        (if (not (~seen?-var ~x))
@@ -630,8 +637,27 @@
 
 (define-iter-op times
   ([how-many]
-   (let [n (gensym "n-")]
+   (xlet [n (gensym "n-")]
      `(:fornext ~n (dec ~n) ~how-many (<= ~n 0))))
   ([]
-   (let [n (gensym "n-")]
+   (xlet [n (gensym "n-")]
      `(:fornext ~n nil nil false))))
+
+(define-iter-op while [test]
+  `(when (not ~test)
+     (break)))
+
+(define-iter-op when [test & body]
+  `(if ~test
+       (do ~@body)))
+
+(define-iter-op let [bindings & body]
+  (assert (vector? bindings) "iter: let requires a vector for its binding")
+  (assert (even? (count bindings))
+          "iter: let requires an even number of forms in binding vector")
+  (if (= (count bindings) 0)
+      `(do ~@body)
+      `(do
+         (with ~@(subvec bindings 0 2))
+         (let ~(subvec bindings 2)
+           ~@body))))

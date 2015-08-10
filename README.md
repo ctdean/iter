@@ -20,7 +20,7 @@ some similarities to list comprehension systems.
 
 Add the following to your project.clj `:dependencies`
 
-    [ctdean/iter "0.4.0"]
+    [ctdean/iter "0.7.0"]
 
 and then require the iter macro:
 
@@ -251,6 +251,19 @@ in a vector:
       => ([2 3] [1 3] [8 1] [2 3] [8 1])
 
 
+### forever
+
+`(forever)`
+
+Iterate an infinite number of times.  The loop runs forever until
+stopped by a control flow operator.
+
+    (take 10
+          (iter (forever)
+                (collect :a)))
+
+      => (:a :a :a :a :a :a :a :a :a :a)
+
 ### fornext
 
 `(fornext var next-expr)`
@@ -280,9 +293,9 @@ To count from 1 to 10:
 
       => (1 2 3 4 5 6 7 8 9 10)
 
-These will work, but calling times and range is probably clearer:
+These will work, but calling forever and range is probably clearer:
 
-    (iter (times)
+    (iter (forever)
           (collect :a))
 
     (iter (foreach i (range 1 11))
@@ -505,6 +518,19 @@ loop that many levels out.
 
       => (1 3 5 7 9)
 
+### while
+
+`(while test)`
+
+Run the loop while `test` is true.  This is exactly equivalent to
+`(if test (break))`
+
+    (iter (foreach x (range 10))
+          (while (< x 5))
+          (collect x))
+
+      => (0 1 2 3 4)
+
 ### finding
 
 `(finding expr)`
@@ -535,6 +561,18 @@ The `with` operator binds `var` to `init` for the remainder for the
           (collect z))
 
       => (110 111 112 113 114 115 116 117 118 119)
+
+### let
+
+`(let [var init]* & body)`
+
+Like the Clojure `let` expression.  Bind `var` to `init` for all of `body`.
+
+    (iter (foreach x (range 10))
+          (let [y (+ 10 x)]
+            (collect y)))
+
+      => (10 11 12 13 14 15 16 17 18 19)
 
 ### with-first
 

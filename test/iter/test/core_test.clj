@@ -170,6 +170,21 @@
                (with y (* x x))
                (collect [x y])))))
 
+(deftest let-test
+  (is (= [[0 0] [1 1] [2 4] [3 9] [4 16]]
+         (iter (foreach x (range 5))
+               (let [y (* x x)]
+                 (collect [x y])))))
+    (is (= [[0 0 1] [1 1 2] [2 4 5] [3 9 10] [4 16 17]]
+           (iter (foreach x (range 5))
+                 (let [y (* x x)
+                       z (inc y)]
+                   (collect [x y z])))))
+    (is (= [0 1 2 3 4]
+           (iter (foreach x (range 5))
+                 (let []
+                   (collect x))))))
+
 (deftest stop-test
   (is (= [0]
          (iter (foreach x (range 10))
@@ -659,6 +674,18 @@
                (with dist (.indexOf tail head))
                (when (> dist 0)
                  (collect [head dist]))))))
+
+(deftest forever-test
+  (is (= 123456
+         (count (take 123456
+                      (iter (forever)
+                            (collect :a)))))))
+(deftest while-test
+  (is (= [0 1 2 3 :done]
+         (iter (foreach x (range 10))
+               (collect x)
+               (while (< x 3))
+               (end (collect :done))))))
 
 (deftest collect-uniq-test
   (is (= '(3 1 4 5 9 2 6 8)
