@@ -3,8 +3,8 @@
   @ctdean"
   (:refer-clojure :exclude [when while let]))
 
-(def registered-macros "All the registered iter macros"
-     (atom {}))
+;; All the registered iter macros.
+(defonce registered-macros (atom {}))
 
 ;;;
 ;;; Shadow clojure builtins
