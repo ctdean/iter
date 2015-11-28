@@ -83,7 +83,7 @@
     (if (keyword? name)
         (throw (IllegalArgumentException.
                 (format "Unknown iter keyword %s => %s" name form)))
-        (if-let [mname (@registered-macros (str name))]
+        (if-let [mname (@registered-macros (string/replace name #".*/" ""))]
           {:do (build-parse-tree [(macroexpand-1 (cons mname (rest form)))])}
           {:expr form}))))
 

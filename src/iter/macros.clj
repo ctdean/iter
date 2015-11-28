@@ -18,12 +18,10 @@
 ;;;
 
 (defn- reg-macro [src dst]
-  (xlet [fq-src (str (ns-name *ns*) "/" src)
-         fq-dst (symbol (str (ns-name *ns*) "/" dst))]
+  (xlet [fq-dst (symbol (str (ns-name *ns*) "/" dst))]
     (swap! registered-macros
            assoc
-           (str src) fq-dst
-           fq-src fq-dst)))
+           (str src) fq-dst)))
 
 (defmacro define-iter-op
   "Define an iter macro.  The only difference between iter macros and
