@@ -533,7 +533,7 @@
                      (accum seen? (conj seen? x) #{})))))))
 
 (define-iter-op my-maximizing [x]
-  `(iter.core/reducing ~x :by max))
+  `(iter.macros/reducing ~x :by max))
 
 (deftest define-iter-test
   (is (= 9
