@@ -17,7 +17,7 @@
 ;;; Register iter macros
 ;;;
 
-(defn- reg-macro [src dst]
+(defn reg-macro [src dst]
   (xlet [fq-dst (symbol (str (ns-name *ns*) "/" dst))]
     (swap! registered-macros
            assoc
@@ -31,8 +31,9 @@
   parsing.  The macro might be called using the plain or fully
   qualified name, so we register both names."
   [iname & args-body]
-  (reg-macro iname iname)
-  `(defmacro ~iname ~@args-body))
+  `(do
+    (reg-macro '~iname '~iname)
+    (defmacro ~iname ~@args-body)))
 
 ;; Macro versions of the builtin iter keywords.
 (define-iter-op collect [expr]          `(:collect ~expr))
