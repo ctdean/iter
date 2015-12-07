@@ -20,12 +20,15 @@
    [clojure.core.match :refer [match]]
    [clojure.pprint :refer [pprint]]
    [clojure.string :as string]
-   [iter.macros :refer [registered-macros]]))
+   iter.macros))
 
 (declare compile-ops)
 (declare output)
 (declare maybe-expand)
 (declare build-parse-tree)
+
+;; Automatically lookup iter macros in these namespaces
+(defonce macro-namespaces (atom #{"iter.macros"}))
 
 ;; The state of the compiled operators
 (def ^{:dynamic true :private true} *op-state* nil)
@@ -75,17 +78,37 @@
     [:finally-by f]                     {:finally-by f}
     :else                               (maybe-expand form)))
 
+(defn- safe-find-var [x]
+  (try
+    (find-var (symbol x))
+    (catch java.lang.IllegalArgumentException e
+      nil)))
+
+(defn- iter-macros [name]
+  (filter #(:iter-op (meta %))
+          (let [[pkg base] (rest (re-find #"^(.+)/(.+)$" (str name)))]
+            (if pkg
+                [(safe-find-var name)]
+                (map #(safe-find-var (str % "/" name))
+                     (cons (ns-name *ns*) @macro-namespaces))))))
+
 (defn- maybe-expand
-  "If this is an iter macro, then manually expand the form an
-  recursively parse it."
+  "If this is an iter macro, then manually expand the form and
+   recursively parse it."
   [form]
   (let [name (first form)]
     (if (keyword? name)
         (throw (IllegalArgumentException.
                 (format "Unknown iter keyword %s => %s" name form)))
-        (if-let [mname (@registered-macros (string/replace name #".*/" ""))]
-          {:do (build-parse-tree [(macroexpand-1 (cons mname (rest form)))])}
-          {:expr form}))))
+        (let [mnames (iter-macros name)]
+          (if (> (count mnames) 1)
+              (throw (IllegalArgumentException.
+                      (format "Multiple definitions for iter keyword %s => %s"
+                              name mnames)))
+              (if (seq mnames)
+                  {:do (build-parse-tree [(macroexpand-1 (cons (first mnames)
+                                                               (rest form)))])}
+                  {:expr form}))))))
 
 (defn- build-parse-tree
   "Parse the iter clauses into an AST."
@@ -455,12 +478,12 @@
 (defmacro iter*
   "Just like iter, but used for side effects.  Evaluates as if `iter`
    was surrounding in a doall.  This causes the entire return
-   expression to be contained memory."
+   expression to be contained in memory."
   [& clauses]
   (iter-expand clauses true))
 
 (defn- dump-iter
-  "Print the generated Clojure"
+  "Print the generated Clojure of an iter form."
   [form]
   (binding [clojure.pprint/*print-suppress-namespaces* true]
     (-> form
@@ -469,10 +492,6 @@
 
 (defmacro define-iter-op
   "Define an iter macro.  The only difference between iter macros and
-  regular macros is that iter macros are recursively parsed by iter.
-
-  We register the name of the iter macro so that we know to keep
-  parsing.  The macro might be called using the plain or fully
-  qualified name, so we register both names."
+  regular macros is that iter macros are recursively parsed by iter."
   [iname & args-body]
   `(iter.macros/define-iter-op ~iname ~@args-body))

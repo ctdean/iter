@@ -3,9 +3,6 @@
   @ctdean"
   (:refer-clojure :exclude [when while let]))
 
-;; All the registered iter macros.
-(defonce registered-macros (atom {}))
-
 ;;;
 ;;; Shadow clojure builtins
 ;;;
@@ -14,26 +11,17 @@
 (defmacro xwhen [& forms] `(clojure.core/when ~@forms))
 
 ;;;
-;;; Register iter macros
+;;; Define the iter macros
 ;;;
-
-(defn- reg-macro [src dst]
-  (xlet [fq-dst (symbol (str (ns-name *ns*) "/" dst))]
-    (swap! registered-macros
-           assoc
-           (str src) fq-dst)))
 
 (defmacro define-iter-op
   "Define an iter macro.  The only difference between iter macros and
   regular macros is that iter macros are recursively parsed by iter.
 
-  We register the name of the iter macro so that we know to keep
-  parsing.  The macro might be called using the plain or fully
-  qualified name, so we register both names."
-  [iname & args-body]
-  `(do
-     (reg-macro '~iname '~iname)
-     (defmacro ~iname ~@args-body)))
+  We tag the iter macro so that we know to recursively parse the
+  form."
+  [iname & args-body] `(defmacro ~iname
+  {:iter-op true} ~@args-body))
 
 ;; Macro versions of the builtin iter keywords.
 (define-iter-op collect [expr]          `(:collect ~expr))

@@ -1,8 +1,9 @@
 (ns iter.test.core-test
   "@ctdean"
-  (:require [clojure.test :refer :all])
-  (:require [clojure.pprint :refer [cl-format]])
-  (:require [iter.core :refer [iter iter* define-iter-op]]))
+  (:require
+   [clojure.test :refer :all]
+   [clojure.pprint :as pprint]
+   [iter.core :refer [iter iter* define-iter-op]]))
 
 (deftest simple-test
   (is (= [1 4 9]
@@ -543,14 +544,14 @@
 (deftest collect-map-test
   (is (= {"zero" 0, "one" 1, "two" 4, "three" 9, "four" 16}
          (iter (foreach x (range 5))
-               (collect-map (cl-format nil "~r" x)
+               (collect-map (pprint/cl-format nil "~r" x)
                             (* x x))))))
 
 (deftest iter-when-test
   (is (= ["one" 1 "three" 3 "five" 5 "seven" 7 "nine" 9]
          (iter (foreach x (range 10))
                (when (odd? x)
-                 (collect (cl-format nil "~r" x))
+                 (collect (pprint/cl-format nil "~r" x))
                  (collect x)))))
   (is (= 165
          (iter (foreach x (range 10))
@@ -696,4 +697,13 @@
   (is (= {"two" 2, "eight" 3}
          (iter (foreach x [2 7 1 8 2 8 1 8])
                (when (even? x)
-                 (collect-freq (cl-format nil "~r" x)))))))
+                 (collect-freq (pprint/cl-format nil "~r" x)))))))
+
+(deftest ns-test
+  (is (= [1 4 9]
+         (iter (foreach x [1 2 3])
+               (collect (* x x)))))
+  (is (= [1 4 9]
+         (iter (foreach x [1 2 3])
+               (pprint/cl-format nil "~r" x)
+               (collect (* x x))))))
