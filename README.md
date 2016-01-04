@@ -13,14 +13,14 @@ For example
       => (9 16 25 36 49)
 
 Iter is inspired to the Common Lisp Iterate package
-https://common-lisp.net/project/iterate/doc/index.html#Top and has
-some similarities to list comprehension systems.
+https://common-lisp.net/project/iterate/doc/index.html and has some
+similarities to list comprehension systems.
 
 # Installation
 
 Add the following to your project.clj `:dependencies`
 
-    [ctdean/iter "0.7.0"]
+![](https://clojars.org/ctdean/iter/latest-version.svg)
 
 and then require the iter macro:
 
@@ -33,10 +33,11 @@ or
 
 # Overview
 
-`iter` is an alternate way of iterating and looping to using the
-traditional Clojure tools such as higher order functions.  It provides
-a rich set of operators to walk a sequence, return a lazy sequence,
-return a single expression, or reduce a complex sequence.
+`iter` is a way of iterating and looping in Clojure. It provides an
+alternate to using the traditional Clojure tools such as higher order
+functions and threading macros.  `iter` provides a rich set of
+operators to walk a sequence, return a lazy sequence, return a single
+expression, or reduce a complex sequence.
 
 Let's walk through a simple example:
 
@@ -108,9 +109,9 @@ You can also reduce a sequence:
 Or bind new variables within the scope of iter:
 
     (iter (foreach x (range 10))
-          (with y (* x x))
-          (when (> y 20)
-            (collect y)))
+          (let [y (* x x)]
+            (when (> y 20)
+              (collect y))))
 
       => (25 36 49 64 81)
 
@@ -174,7 +175,7 @@ This nesting behavior holds true for all the Iteration Operators (see
 below).
 
 If you want to avoid nesting and process the sequences in parallel,
-you can use multiple sequences to the `foreach` operator:
+you can use multiple sequences with the `foreach` operator:
 
     (iter (foreach [row col] [1 2 3 4 5] ["a" "b" "c" "d"])
           (collect [row col]))
@@ -183,6 +184,31 @@ you can use multiple sequences to the `foreach` operator:
 
 where the sequences are truncated to the length of the shortest
 sequence.
+
+# Why?
+
+It's reasonable to ask why `iter` exists at all.  Why not just use the
+right selection of threading macros, sequence processing functions, and
+transducers?
+
+In more complex cases, it can be clearer to use a custom DSL.
+Consider these contrived examples:
+
+    (iter (foreach [k v] my-map)
+          (when (> v 3)
+            (collect-map (if (keyword? k) (name k) k)
+                         v)))
+
+and
+
+    (->> my-map
+         (filter (fn [[k v]] (> v 3)))
+         (map (fn [[k v]] [(if (keyword? k) (name k) k)
+                           v]))
+         (into {}))
+
+Both of these expressions produce the same result, but the `iter`
+version is a more direct way to describe the solution.
 
 # Operators
 
@@ -304,9 +330,8 @@ These will work, but calling forever and range is probably clearer:
 ### times
 
 `(times n)`
-`(times)`
 
-Iterate `n` times, or infinitely if `n` is omitted.
+Iterate `n` times.
 
     (iter (times 8)
           (collect (rand-int 100)))
@@ -402,8 +427,8 @@ Just like `collect`, but returns a frequency count of the values:
 `(if test then else)`
 
 Just like the normal Clojure `if`, but modified to support `iter`.
-That is, evaluate `test` and if true evaluate `then`, and if false
-evaluate `else`.  If `else` is missing then we just evaluate nil.
+That is, evaluate `test` and if true evaluates `then`, and if false
+evaluates `else`.  If `else` is missing then we just evaluate nil.
 
     (iter (foreach x [3 1 4 1 5 9 2 6 5 3 5 8])
           (if (odd? x)
@@ -505,8 +530,8 @@ If `nlevels` is given in a nested loop, break out of that many loops.
 
 `(continue nlevels)`
 
-Like the C Language `continue`, skip the this step in the iteration of
-the current loop.
+Like the C Language `continue`, skip  this step in the iteration of the
+current loop.
 
 If `nlevels` is given and we are in a nested loop, continue with the
 loop that many levels out.
@@ -523,7 +548,7 @@ loop that many levels out.
 `(while test)`
 
 Run the loop while `test` is true.  This is exactly equivalent to
-`(if test (break))`
+`(if (not test) (break))`
 
     (iter (foreach x (range 10))
           (while (< x 5))
@@ -548,20 +573,6 @@ given, return the first value of `expr` that has `where` true.
 
 ## Binding Operators
 
-### with
-
-`(with var init)`
-
-The `with` operator binds `var` to `init` for the remainder for the
-`iter` form.  This is similar to a Clojure `let` expression.
-
-    (iter (foreach x (range 10))
-          (with y (+ 10 x))
-          (with z (+ 100 y))
-          (collect z))
-
-      => (110 111 112 113 114 115 116 117 118 119)
-
 ### let
 
 `(let [var init]* & body)`
@@ -573,6 +584,20 @@ Like the Clojure `let` expression.  Bind `var` to `init` for all of `body`.
             (collect y)))
 
       => (10 11 12 13 14 15 16 17 18 19)
+
+### with
+
+`(with var init)`
+
+The `with` operator binds `var` to `init` for the remainder for the
+`iter` form.  This is similar to a `let` expression.
+
+    (iter (foreach x (range 10))
+          (with y (+ 10 x))
+          (with z (+ 100 y))
+          (collect z))
+
+      => (110 111 112 113 114 115 116 117 118 119)
 
 ### with-first
 
@@ -687,7 +712,7 @@ by that value.
 `(summing expr)`
 
 Add up `expr` each time `summing` is called and and return the result.
-`summing` is initially set to 0 and return 0 if `summing` is never
+`summing` is initially set to 0 and returns 0 if `summing` is never
 executed.
 
         (iter (foreach x (range 1 101))
@@ -707,7 +732,7 @@ executed.
 `(multiplying expr)`
 
 Multiply `expr` each time `multiplying` is called and and return the
-result.  `multiplying` is initially set to 1 and return 1 if
+result.  `multiplying` is initially set to 1 and returns 1 if
 `multiplying` is never executed.
 
     (iter (foreach x (range 6))
@@ -805,10 +830,8 @@ generates.
 Much in the same way you would use `doseq` for side effects, `iter*`
 can be used for looping side effects.
 
-Although you can wrap the normal `iter` expression in `(doall (iter ...)`,
-you can use `iter*` for the same purpose.  Be careful returning large
-sequences, as `iter*` causes the entire returning sequence to reside
-in memory.
+Although you can wrap the normal `iter` expression in `(dorun (iter ...)`,
+you can use `iter*` for the same purpose.  `iter*` always returns nil.
 
     (iter* (times 3)
            (println "Hello world!"))

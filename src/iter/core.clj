@@ -456,7 +456,8 @@
        ~(output-finally-by (if (:return op-state) ; Post process the result
                                `(first ~res)
                                (if use-dorun?
-                                   `(seq (doall ~res))
+                                   `(do (dorun ~res)
+                                        nil)
                                    `(seq ~res)))
                            (:finally-by op-state)))))
 

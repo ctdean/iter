@@ -55,8 +55,7 @@
          (let [state (atom [])]
            (iter* (foreach x (range 10)) (swap! state conj x))
            @state)))
-  (is (= (range 10)
-         (iter* (foreach x (range 10)) (collect x)))))
+ (is (nil? (iter* (foreach x (range 10)) (collect x)))))
 
 (deftest if-test
   (is (= [0 2 4 4 16 6 36 8 64 10]
@@ -660,7 +659,7 @@
              (collect :a))))
   (is (= 123456
          (count (take 123456
-                      (iter (times)
+                      (iter (times 1e9)
                             (collect :a)))))))
 
 (deftest forlist-test

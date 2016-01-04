@@ -120,8 +120,11 @@
       (return ~expr))))
 
 (define-iter-op collect-map [key value]
-  `(reducing [~key ~value] :init {} :by (fn [acc# [k# v#]]
-                                          (assoc acc# k# v#))))
+  `(reducing [~key ~value]
+             :init (transient {})
+             :by (fn [acc# [k# v#]]
+                   (assoc! acc# k# v#))
+             :finally-by persistent!))
 
 (def ^:private seen?-var (gensym "seen?-"))
 
@@ -162,13 +165,9 @@
        (accum ~counter-var (inc ~counter-var) 0))
      (end (return ~counter-var))))
 
-(define-iter-op times
-  ([how-many]
-   (xlet [n (gensym "n-")]
-     `(:fornext ~n (dec ~n) ~how-many (<= ~n 0))))
-  ([]
-   (xlet [n (gensym "n-")]
-     `(:fornext ~n nil nil false))))
+(define-iter-op times [how-many]
+  (xlet [n (gensym "n-")]
+        `(:fornext ~n (dec ~n) ~how-many (<= ~n 0))))
 
 (define-iter-op while [test]
   `(when (not ~test)
