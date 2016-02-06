@@ -210,6 +210,12 @@ and
 Both of these expressions produce the same result, but the `iter`
 version is a more direct way to describe the solution.
 
+On a more philosophical note, `iter` is designed to reason about one
+element at a time and all the steps to transform that element.
+Threading macros, on the other hand, are designed to reason about each
+step in the transformation an entire sequence and how to connect the
+transformation steps.
+
 # Operators
 
 ## Iteration Operators
@@ -870,6 +876,13 @@ All the normal caveats to writing regular macros apply when writing
 # Testing
 
 `make test`
+
+# See also
+
+- Clojure list comprehensions: https://clojuredocs.org/clojure.core/for
+- A navigation and transformation library: https://github.com/nathanmarz/specter
+- The original Common Lisp library: https://common-lisp.net/project/iterate/doc/index.html
+- Another Clojure iter version: https://github.com/nathell/clj-iter
 
 # Authors
 
