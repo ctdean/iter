@@ -825,15 +825,15 @@ generates.
 
       => 20
 
-# iter*
+# iter!
 
-Much in the same way you would use `doseq` for side effects, `iter*`
+Much in the same way you would use `doseq` for side effects, `iter!`
 can be used for looping side effects.
 
 Although you can wrap the normal `iter` expression in `(dorun (iter ...)`,
-you can use `iter*` for the same purpose.  `iter*` always returns nil.
+you can use `iter!` for the same purpose.  `iter!` always returns nil.
 
-    (iter* (times 3)
+    (iter! (times 3)
            (println "Hello world!"))
 
       => nil

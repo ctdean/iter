@@ -456,8 +456,7 @@
        ~(output-finally-by (if (:return op-state) ; Post process the result
                                `(first ~res)
                                (if use-dorun?
-                                   `(do (dorun ~res)
-                                        nil)
+                                   `(dorun ~res)
                                    `(seq ~res)))
                            (:finally-by op-state)))))
 
@@ -476,10 +475,15 @@
   [& clauses]
   (iter-expand clauses false))
 
-(defmacro iter*
+(defmacro iter!
   "Just like iter, but used for side effects.  Evaluates as if `iter`
    was surrounding in a doall.  This causes the entire return
    expression to be contained in memory."
+  [& clauses]
+  (iter-expand clauses true))
+
+(defmacro iter*
+  "Just like iter!  DEPRECATED"
   [& clauses]
   (iter-expand clauses true))
 

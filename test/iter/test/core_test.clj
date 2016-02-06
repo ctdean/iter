@@ -3,7 +3,7 @@
   (:require
    [clojure.test :refer :all]
    [clojure.pprint :as pprint]
-   [iter.core :refer [iter iter* define-iter-op]]))
+   [iter.core :refer [iter iter! define-iter-op]]))
 
 (deftest simple-test
   (is (= [1 4 9]
@@ -42,10 +42,10 @@
                             (- x))))))
   )
 
-(deftest iter*-test
+(deftest iter!-test
   (is (= (range 10)
          (let [state (atom [])]
-           (iter* (foreach x (range 10)) (swap! state conj x) (collect x))
+           (iter! (foreach x (range 10)) (swap! state conj x) (collect x))
            @state)))
   (is (>= 10
          (let [state (atom [])]
@@ -53,9 +53,9 @@
            (count @state))))
   (is (= (range 10)
          (let [state (atom [])]
-           (iter* (foreach x (range 10)) (swap! state conj x))
+           (iter! (foreach x (range 10)) (swap! state conj x))
            @state)))
- (is (nil? (iter* (foreach x (range 10)) (collect x)))))
+ (is (nil? (iter! (foreach x (range 10)) (collect x)))))
 
 (deftest if-test
   (is (= [0 2 4 4 16 6 36 8 64 10]
