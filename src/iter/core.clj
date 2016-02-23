@@ -460,6 +460,13 @@
                                    `(seq ~res)))
                            (:finally-by op-state)))))
 
+(defmacro iter!
+  "Just like iter, but used for side effects.  Evaluates as if `iter`
+   was surrounding in a doall.  This causes the entire return
+   expression to be contained in memory."
+  [& clauses]
+  (iter-expand clauses true))
+
 (defmacro iter
   "An iteration and looping DSL for Clojure.  Iter provides an
   extensible looping language that is an alternate to higher order
@@ -474,13 +481,6 @@
       => (9 16 25 36 49)"
   [& clauses]
   (iter-expand clauses false))
-
-(defmacro iter!
-  "Just like iter, but used for side effects.  Evaluates as if `iter`
-   was surrounding in a doall.  This causes the entire return
-   expression to be contained in memory."
-  [& clauses]
-  (iter-expand clauses true))
 
 (defmacro iter*
   "Just like iter!  DEPRECATED"
