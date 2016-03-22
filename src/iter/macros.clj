@@ -82,7 +82,15 @@
 
 (define-iter-op fornext
   ([var next-expr]
-   `(fornext ~var ~next-expr nil))
+   `(fornext ~var ~next-expr ~next-expr))
+  ([var next-expr init]
+   `(fornext ~var ~next-expr ~init false))
+  ([var next-expr init done?]
+   `(:fornext ~var ~next-expr ~init ~done?)))
+
+(define-iter-op fornext
+  ([var next-expr]
+   `(fornext ~var ~next-expr ~next-expr))
   ([var next-expr init]
    `(fornext ~var ~next-expr ~init false))
   ([var next-expr init done?]

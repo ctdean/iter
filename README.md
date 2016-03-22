@@ -213,8 +213,8 @@ version is a more direct way to describe the solution.
 On a more philosophical note, `iter` is designed to reason about one
 element at a time and all the steps to transform that element.
 Threading macros, on the other hand, are designed to reason about each
-step in the transformation an entire sequence and how to connect the
-transformation steps.
+step in the transformation of an entire sequence and how to connect
+the transformation steps.
 
 # Operators
 
@@ -274,11 +274,11 @@ the list.  Here's an example for finding the distance between elements
 in a vector:
 
     (iter (forlist nums [2 7 1 8 2 8 1 8 2])
-          (with head (first nums))
-          (with tail (rest nums))
-          (with dist (.indexOf tail head))
-          (when (> dist 0)
-            (collect [head dist])))
+          (let [head (first nums)
+                tail (rest nums)
+                dist (.indexOf tail head)]
+            (when (> dist 0)
+              (collect [head dist]))))
 
       => ([2 3] [1 3] [8 1] [2 3] [8 1])
 
@@ -308,7 +308,7 @@ This is the iteration building block.  `var` starts out bound to
 `init` and is then bound to `next-expr` for every loop iteration.  The
 loop terminates when `done?` returns true.
 
-If not given, `init` defaults to `nil` and `done?` defaults to `false`.
+If not given, `init` defaults to `next-expr` and `done?` defaults to `false`.
 
 You usually don't need to call `fornext` directly, but all the
 Iteration Operators are implemented uing `fornext`.
